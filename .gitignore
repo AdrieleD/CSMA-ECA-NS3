@@ -1,0 +1,10 @@
+!.gitignore
+!scratch/*
+!xdiff
+!simulate
+!clearTmp
+!tmp/*
+!src/wifi/model/dca-txop*
+!src/wifi/model/dcf-manager*
+!src/wifi/model/regular-wifi-mac*
+!src/wifi/model/constant-rate-wifi-manager*
