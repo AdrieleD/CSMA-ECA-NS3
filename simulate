@@ -1,0 +1,28 @@
+#!/usr/local/bin/perl
+use List::Util qw(first max maxstr min minstr reduce shuffle sum);
+my $nMax = 2;
+my $nMin = $ARGV[0];
+$nMax = $ARGV[1];
+my $verbose = true;
+my $tracing = true;
+my $totalSimTime = 10;
+my $ECA = 'false';
+my @command = './waf --cwd=tmp/ --run "scratch/wlan';
+
+if( ($#ARGV+1) > 1){
+	die("Different ranges, please. \n./simulate min max\n")
+		if($nMax - $nMin <= 0);
+	foreach my $i ($nMin..$nMax){
+		my @addition = ("--nWifi=$i --verbose=$verbose --totalSimtime=$totalSimTime --ECA=$ECA --tracing=$tracing\"");
+		my @outPut = "@command @addition";
+		system(@outPut);
+	}
+}else{
+		die("More than one node, please\n")
+			if($nMin <= 1);
+		my @send = ("@command --nWifi=$nMin --verbose=$verbose --totalSimtime=$totalSimTime --ECA=$ECA --tracing=$tracing\"");
+		system(@send);
+}
+
+
+

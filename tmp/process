@@ -1,0 +1,70 @@
+#!/usr/local/bin/perl
+use Switch;
+use List::Util qw(first max maxstr min minstr reduce shuffle sum);
+my @totalSxFrames;
+my @totalFailedFrames;
+my @totalTxAttempts;
+my $inputFile = $ARGV[0];
+my $highNodes = 0;
+my $lowNodes = 1000;
+my $outputFile = 'averaged.dat';
+my $aggregatedFile = 'totalAveraged.dat';
+
+open(my $input, "<", $inputFile)
+	or die "Could not open file '$inputFile' $!";
+
+#Finding the node limits
+while (my $row = <$input>){
+	chomp($row);
+	my @data = split(/\s+/, $row);
+	$highNodes = $data[1]
+		if($highNodes < $data[1]);
+	$lowNodes = $data[1]
+		if($lowNodes > $data[1]);
+}
+
+open(my $fw, ">", $outputFile)
+    or die "Could not open write file $outputFile $!";
+
+NEXT: foreach($lowNodes .. $highNodes){
+	open(my $input, "<", $inputFile)
+		or die "Could not open file '$inputFile' $!";
+	my $thereIsData = 0;
+
+	while(my $row = <$input>){
+		chomp($row);
+		my @data = split(/\s+/, $row);
+		if($data[1] == $_){
+			$thereIsData = 1;
+			switch($data[2]){
+				case 1 { #Sx
+					$totalSxFrames[$_] = $data[3];
+				}
+				case 2 { #Failed
+					$totalFailedFrames[$_] = $data[3];
+				}
+				case 3 { #txAttempts
+					$totalTxAttempts[$_] = $data[3];
+				}
+			}
+		}
+	}
+	next NEXT 
+		if($thereIsData == 0);
+
+	my @listData = ($totalSxFrames[$_], $totalFailedFrames[$_], $totalTxAttempts[$_]);
+	print $fw "$_ @listData\n";
+}
+
+open(my $fw, ">>", $aggregatedFile)
+    or die "Could not open write file $aggregatedFile $!";
+
+my $totalNodes = $highNodes+1;
+my $aggSx = sum(@totalSxFrames);
+my $aggFail = sum(@totalFailedFrames);
+my $aggTx = sum(@totalTxAttempts);
+print "-Processing the output file(s)\n";
+print $fw ("$totalNodes $aggSx $aggFail $aggTx\n");
+
+
+

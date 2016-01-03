@@ -1,0 +1,6 @@
+#!/bin/bash
+LOCAL=$1
+QUIET=$2
+MINE=$(pwd)
+REMOTE=~/Dropbox/PhD/Research/NS3/ns3-eca-v0.1
+diff -ya $MINE/$LOCAL $REMOTE/$LOCAL $QUIET

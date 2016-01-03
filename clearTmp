@@ -1,0 +1,4 @@
+rm tmp/*txt > /dev/null 2>&1
+rm tmp/*log > /dev/null 2>&1
+rm tmp/*pcap > /dev/null 2>&1
+rm tmp/*dat > /dev/null 2>&1

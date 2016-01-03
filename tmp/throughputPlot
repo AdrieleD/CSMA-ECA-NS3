@@ -1,0 +1,4 @@
+#!/usr/local/bin/gnuplot
+set ylabel "Throughput (Mbps)"
+set xlabel "Wifi nodes (couting the AP)"
+plot "results.log" u 1:($2/1e6) title "CSMA/ECA" w l ls 1 lw 2
