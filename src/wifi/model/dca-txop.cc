@@ -626,6 +626,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
       m_currentPacket = 0;
 
       if(m_manager->GetEnvironmentForECA ()){
+        NS_LOG_INFO ("***ECA=true");
         if(!(m_manager->GetHysteresisForECA ()))
           m_dcf->ResetCw ();
         m_dcf->StartBackoffNow (deterministicBackoff(m_dcf->GetCw ()));

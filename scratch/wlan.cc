@@ -48,13 +48,21 @@ struct sim_config{
   bool ECA;
   uint32_t CWmin;
   bool hysteresis;
+  bool fairShare;
 
 };
 struct sim_config config;
 
+struct sim_results{
+  uint32_t sxTx;
+  uint32_t failTx;
+  uint32_t txAttempts;
+};
+struct sim_results results;
+
 
 void
-printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double &startClientApp)
+printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double &startClientApp, struct sim_results *results)
 {
   Time simulationDuration = Simulator::Now() - Seconds(startClientApp);
 
@@ -62,19 +70,30 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
   double rx_bits = 0.0;
   double total_rx_packets = 0.0;
 
+  // Aggregated stats from the DcaTxop of each node
+  double col = results->failTx; 
+  double attempts = results->txAttempts;
+  double sx = results->sxTx;
+
   for(uint32_t i = 0; i < config.nWifi-1; i++){
     uint64_t rx_packets;
     rx_packets = DynamicCast<UdpServer>(config.servers.Get(i))->GetReceived();
     total_rx_packets += rx_packets;
     rx_bits += (rx_packets * config.payload * 8.0);
-    std::cout << i << " " << rx_packets << " " << config.servers.GetN() << std::endl;
+    // std::cout << i << " " << rx_packets << " " << config.servers.GetN() << std::endl;
   }
 
   std::cout << "Total Throughput: " << rx_bits / simulationDuration.GetSeconds() << std::endl;
   std::cout << "Total received datagrams: " << total_rx_packets << std::endl;
 
+  std::cout << "Fraction of tx resulting in collisions: " << col/attempts << std::endl;
+  uint64_t index = attempts - (col + sx);
+  if(index != 0)
+    std::cout << "Something is wrong with couting the results of tx attempts (" << index << ")" << std::endl;
+
   *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6)
-    << rx_bits / simulationDuration.GetSeconds() << std::endl;
+    << rx_bits / simulationDuration.GetSeconds() << " " << std::fixed << std::setprecision(6)
+    << col/attempts << std::endl;
 }
 
 void
@@ -88,21 +107,27 @@ processFinal(std::string &dataFileName)
 
 //Trace calbacks
 void
-TraceFailures(Ptr<OutputStreamWrapper> stream, std::string context, uint64_t oldValue, uint64_t newValue){
+TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   *stream->GetStream() << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
+  results->failTx++;
 }
 
 void
-TraceSuccesses(Ptr<OutputStreamWrapper> stream, std::string context, uint64_t oldValue, uint64_t newValue){
+TraceSuccesses(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   *stream->GetStream() << m_now << " " << context << " " << SXTX << " " << newValue << std::endl; 
+  results->sxTx++;
 }
 
 void
-TraceTxAttempts(Ptr<OutputStreamWrapper> stream, std::string context, uint64_t oldValue, uint64_t newValue){
+TraceTxAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   *stream->GetStream() << m_now << " " << context << " " << TX << " " << newValue << std::endl; 
+  results->txAttempts++;
 }
 
 /**
@@ -155,9 +180,6 @@ finaliseSetup(struct sim_config &config)
   }
 }
 
-
-
-
 int 
 main (int argc, char *argv[])
 {
@@ -178,6 +200,7 @@ main (int argc, char *argv[])
   bool ECA = false;
   uint32_t CWmin = 0;
   bool hysteresis = false;
+  bool fairShare = false;
 
 
   CommandLine cmd;
@@ -191,6 +214,7 @@ main (int argc, char *argv[])
   cmd.AddValue ("ECA", "CSMA/ECA", ECA);
   cmd.AddValue ("CWmin", "Minimum contention window", CWmin);
   cmd.AddValue ("hysteresis", "Do we keep the CurCW after a sxTx?", hysteresis);
+  cmd.AddValue ("fairShare", "Do we aggregate according to hysteresis?", fairShare);
 
   cmd.Parse (argc,argv);
 
@@ -202,6 +226,11 @@ main (int argc, char *argv[])
   config.ECA = ECA;
   config.CWmin = CWmin;
   config.hysteresis = hysteresis;
+  config.fairShare = fairShare;
+
+  results.sxTx = 0;
+  results.failTx = 0;
+  results.txAttempts = 0;
 
 
   // Check for valid number of csma or wifi nodes
@@ -218,7 +247,7 @@ main (int argc, char *argv[])
     // LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
     // LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
     // LogComponentEnable("DcfManager", LOG_LEVEL_DEBUG);
-    LogComponentEnable("DcaTxop", LOG_LEVEL_FUNCTION);
+    LogComponentEnable("DcaTxop", LOG_LEVEL_DEBUG);
     // LogComponentEnable("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
   }
 
@@ -341,7 +370,7 @@ main (int argc, char *argv[])
 		UdpClientHelper client (ipDestination, destPort + i);
     Time intervalTest = Seconds((payload * 8.0) / (txRate * 1e6));
     // uint64_t maxP = 4294967295;
-		client.SetAttribute("MaxPackets", UintegerValue (1));
+		client.SetAttribute("MaxPackets", UintegerValue (4294967295u));
     client.SetAttribute("Interval", TimeValue(intervalTest));
 		client.SetAttribute("PacketSize", UintegerValue(payload));
 
@@ -361,9 +390,9 @@ main (int argc, char *argv[])
       GetObject<RegularWifiMac>()->GetDcaTxop();
     if(tracing == true){
       n << i;
-      dca->TraceConnect ("TxFailures",n.str(), MakeBoundCallback(&TraceFailures,tx_stream));
-      dca->TraceConnect ("TxSuccesses", n.str(), MakeBoundCallback(&TraceSuccesses,tx_stream));
-      dca->TraceConnect ("TxAttempts", n.str(), MakeBoundCallback(&TraceTxAttempts, tx_stream));
+      dca->TraceConnect ("TxFailures",n.str(), MakeBoundCallback(&TraceFailures, tx_stream, &results));
+      dca->TraceConnect ("TxSuccesses", n.str(), MakeBoundCallback(&TraceSuccesses, tx_stream, &results));
+      dca->TraceConnect ("TxAttempts", n.str(), MakeBoundCallback(&TraceTxAttempts, tx_stream, &results));
     }
   }
 
@@ -379,8 +408,8 @@ main (int argc, char *argv[])
 
   Simulator::Stop (Seconds (totalSimtime+1));
   //Last call to the printResults function
-  Simulator::Schedule(Seconds(totalSimtime+0.999999), printResults, config, results_stream, startClientApp);
-  Simulator::Schedule(Seconds(totalSimtime+0.999999), processFinal, txLog);
+  Simulator::Schedule(Seconds(totalSimtime+0.999999), printResults, config, results_stream, startClientApp, &results);
+  Simulator::Schedule(Seconds(totalSimtime+0.999999), processFinal, resultsName);
   Simulator::Schedule(Seconds(startClientApp-1.000001), finaliseSetup, config);
 
   Simulator::Run ();

@@ -1,9 +1,8 @@
 #!/usr/local/bin/perl
 use Switch;
 use List::Util qw(first max maxstr min minstr reduce shuffle sum);
-my @totalSxFrames;
-my @totalFailedFrames;
-my @totalTxAttempts;
+use Statistics::Basic qw(:all);
+
 my $inputFile = $ARGV[0];
 my $highNodes = 0;
 my $lowNodes = 1000;
@@ -17,54 +16,56 @@ open(my $input, "<", $inputFile)
 while (my $row = <$input>){
 	chomp($row);
 	my @data = split(/\s+/, $row);
-	$highNodes = $data[1]
-		if($highNodes < $data[1]);
-	$lowNodes = $data[1]
-		if($lowNodes > $data[1]);
+	$highNodes = $data[0]
+		if($highNodes < $data[0]);
+	$lowNodes = $data[0]
+		if($lowNodes > $data[0]);
 }
 
 open(my $fw, ">", $outputFile)
     or die "Could not open write file $outputFile $!";
+#Odd indexes are standard deviations in the resulting file
+print $fw ("#1 Nodes #2 AvgThroughput\n");
 
 NEXT: foreach($lowNodes .. $highNodes){
 	open(my $input, "<", $inputFile)
 		or die "Could not open file '$inputFile' $!";
 	my $thereIsData = 0;
+	my @metrics;
 
 	while(my $row = <$input>){
 		chomp($row);
 		my @data = split(/\s+/, $row);
-		if($data[1] == $_){
+		if($data[0] == $_){
 			$thereIsData = 1;
-			switch($data[2]){
-				case 1 { #Sx
-					$totalSxFrames[$_] = $data[3];
-				}
-				case 2 { #Failed
-					$totalFailedFrames[$_] = $data[3];
-				}
-				case 3 { #txAttempts
-					$totalTxAttempts[$_] = $data[3];
-				}
+			foreach my $i (1 .. $#data){
+				push @{$metrics[$i]}, $data[$i];
 			}
 		}
 	}
 	next NEXT 
 		if($thereIsData == 0);
 
-	my @listData = ($totalSxFrames[$_], $totalFailedFrames[$_], $totalTxAttempts[$_]);
-	print $fw "$_ @listData\n";
+	my $avg;
+	my $std;
+	print $fw "$_ ";
+	foreach my $i (1 .. $#metrics){
+		$avg = avg(@{$metrics[$i]}) + 0;
+		$std = stddev(@{$metrics[$i]}) + 0;
+		print $fw "$avg $std ";
+	}
+	print $fw "\n";
 }
 
-open(my $fw, ">>", $aggregatedFile)
-    or die "Could not open write file $aggregatedFile $!";
+# open(my $fw, ">>", $aggregatedFile)
+#     or die "Could not open write file $aggregatedFile $!";
 
-my $totalNodes = $highNodes+1;
-my $aggSx = sum(@totalSxFrames);
-my $aggFail = sum(@totalFailedFrames);
-my $aggTx = sum(@totalTxAttempts);
-print "-Processing the output file(s)\n";
-print $fw ("$totalNodes $aggSx $aggFail $aggTx\n");
+# my $totalNodes = $highNodes+1;
+# my $aggSx = sum(@totalSxFrames);
+# my $aggFail = sum(@totalFailedFrames);
+# my $aggTx = sum(@totalTxAttempts);
+# print "-Processing the output file(s)\n";
+# print $fw ("$totalNodes $aggSx $aggFail $aggTx\n");
 
 
 

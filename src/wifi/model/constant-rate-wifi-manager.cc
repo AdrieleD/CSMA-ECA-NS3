@@ -105,7 +105,7 @@ ConstantRateWifiManager::DoReportDataOk (WifiRemoteStation *st,
                                          double ackSnr, WifiMode ackMode, double dataSnr)
 {
   NS_LOG_FUNCTION (this << st << ackSnr << ackMode << dataSnr);
-  std::cout << "Here " << m_dataMode << " " << ackMode << std::endl;
+  // std::cout << "Here " << m_dataMode << " " << ackMode << std::endl;
 }
 
 void
