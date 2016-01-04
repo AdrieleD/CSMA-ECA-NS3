@@ -63,7 +63,7 @@ private:
 
   WifiMode m_dataMode; //!< Wifi mode for unicast DATA frames
   WifiMode m_ctlMode;  //!< Wifi mode for RTS frames
-  WifiMode m_ackMode;
+  WifiMode m_ackMode;  //!< Wifi mode for Ack frames
 };
 
 } //namespace ns3

@@ -50,8 +50,7 @@ ConstantRateWifiManager::GetTypeId (void)
                    MakeWifiModeChecker ())
     .AddAttribute ("AckMode", "The transmission mode to use for every (Ack) packet transmission.",
                   StringValue ("OfdmRate6Mbps"),
-                  MakeWifiModeAccessor
-                  (&ConstantRateWifiManager::m_ackMode),
+                  MakeWifiModeAccessor (&ConstantRateWifiManager::m_ackMode),
                   MakeWifiModeChecker ())
   ;
   return tid;
@@ -106,6 +105,7 @@ ConstantRateWifiManager::DoReportDataOk (WifiRemoteStation *st,
                                          double ackSnr, WifiMode ackMode, double dataSnr)
 {
   NS_LOG_FUNCTION (this << st << ackSnr << ackMode << dataSnr);
+  std::cout << "Here " << m_dataMode << " " << ackMode << std::endl;
 }
 
 void
@@ -138,6 +138,7 @@ ConstantRateWifiManager::DoGetRtsTxVector (WifiRemoteStation *st)
 {
   NS_LOG_FUNCTION (this << st);
   return WifiTxVector (m_ctlMode, GetDefaultTxPowerLevel (), GetShortRetryCount (st), GetShortGuardInterval (st), 1, 0, GetChannelWidth (st), GetAggregation (st), false);
+  // return WifiTxVector (m_ctlMode, GetDefaultTxPowerLevel (), GetShortRetryCount (st), GetShortGuardInterval (st), Min (GetNumberOfReceiveAntennas (st), GetNumberOfTransmitAntennas ()), GetNess (st), GetAggregation (st), GetStbc (st));
 }
 
 bool

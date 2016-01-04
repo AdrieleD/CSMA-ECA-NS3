@@ -219,6 +219,7 @@ main (int argc, char *argv[])
     // LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
     // LogComponentEnable("DcfManager", LOG_LEVEL_DEBUG);
     LogComponentEnable("DcaTxop", LOG_LEVEL_FUNCTION);
+    // LogComponentEnable("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
   }
 
   //Creating the log streams
@@ -322,7 +323,6 @@ main (int argc, char *argv[])
 
 
   //Configuring the Application
-  //Ipv4Address ipDestination = apDevices.Get(0)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal();
   Ipv4Address ipDestination = interfaces.GetAddress(0);   
   if(verbose == true){
     *debug_log->GetStream() << "Destination: " << ipDestination << std::endl;
