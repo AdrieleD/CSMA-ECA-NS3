@@ -605,6 +605,7 @@ DcaTxop::MissedCts (void)
   RestartAccessIfNeeded ();
 }
 
+
 void
 DcaTxop::GotAck (double snr, WifiMode txMode)
 {
