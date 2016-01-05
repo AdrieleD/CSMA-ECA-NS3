@@ -305,8 +305,11 @@ DcfManager::GetTypeId (void)
                       .SetParent<Object> ()
                       .SetGroupName ("Wifi")
                       .AddConstructor<DcfManager> ()
-                      ;
-                      return tid;
+    .AddTraceSource ("LastTxDuration", "Duration of last Tx",
+                    MakeTraceSourceAccessor(&DcfManager::m_lastTracedTxDuration),
+                    "ns3::Traced::Value::Uint64Callback")
+    ;
+  return tid;
 }
 
 
@@ -332,7 +335,8 @@ DcfManager::DcfManager ()
     m_phyListener (0),
     m_lowListener (0),
     m_isECA (false),
-    m_hysteresis (false)
+    m_hysteresis (false),
+    m_lastTracedTxDuration (0xFFFFFFFFFFFFFFFF)
 {
   NS_LOG_FUNCTION (this);
 }
@@ -750,6 +754,7 @@ DcfManager::NotifyTxStartNow (Time duration)
   UpdateBackoff ();
   m_lastTxStart = Simulator::Now ();
   m_lastTxDuration = duration;
+  UpdateTracedTxDuration();
 }
 
 void
@@ -953,5 +958,11 @@ DcfManager::GetHysteresisForECA()
   return m_hysteresis;
 }
 
+void
+DcfManager::UpdateTracedTxDuration()
+{
+  m_lastTracedTxDuration = 0xFFFFFFFFFFFFFFFF;
+  m_lastTracedTxDuration = m_lastTxDuration.GetMicroSeconds();
+}
 
 } //namespace ns3

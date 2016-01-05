@@ -3,13 +3,13 @@ use List::Util qw(first max maxstr min minstr reduce shuffle sum);
 my $nMax = 2;
 my $nMin = $ARGV[0];
 $nMax = $ARGV[1];
-my $rep = 2;
+my $rep = 1;
 my $verbose = false;
 my $tracing = true;
 my $totalSimTime = 10;
-my $seed = 1; #Keep -1 to leave unchanged
+my $seed = -1; #Keep -1 to leave unchanged
 my $ECA = false;
-my $hyst = false;
+my $hyst = true;
 my @command = './waf --cwd=tmp/ --run "scratch/wlan';
 
 if( ($#ARGV+1) > 1){

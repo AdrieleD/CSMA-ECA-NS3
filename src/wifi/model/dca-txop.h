@@ -157,13 +157,17 @@ public:
    */
   int64_t AssignStreams (int64_t stream);
 
+
+  /*For CSMA/ECA
+   *
+   */
   uint64_t GetFailures (void);
   uint64_t GetSuccesses (void);
   uint64_t GetTxAttempts (void);
+  uint32_t GetAssignedBackoff (void);
   void ResetStats (void);
   uint32_t deterministicBackoff (uint32_t cw);
-
-
+  uint32_t tracedRandomFactory (void);
 
 private:
   class TransmissionListener;
@@ -359,6 +363,7 @@ private:
   TracedValue<uint64_t> m_failures;
   TracedValue<uint64_t> m_successes;
   TracedValue<uint64_t> m_txAttempts;
+  TracedValue<uint32_t> m_boCounter;
 
 };
 

@@ -418,6 +418,7 @@ public:
   void SetEnvironmentForECA (bool hysteresis);
   bool GetEnvironmentForECA (void);
   bool GetHysteresisForECA (void);
+  void UpdateTracedTxDuration (void);
 
 
 private:
@@ -558,6 +559,8 @@ private:
   LowDcfListener* m_lowListener;
   bool m_isECA;
   bool m_hysteresis;
+
+  TracedValue<uint64_t> m_lastTracedTxDuration;
 };
 
 } //namespace ns3

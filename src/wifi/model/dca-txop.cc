@@ -158,6 +158,9 @@ DcaTxop::GetTypeId (void)
     .AddTraceSource ("TxAttempts", "Incremented for every access to DCF",
                     MakeTraceSourceAccessor(&DcaTxop::m_txAttempts),
                     "ns3::Traced::Value:Uint64Callback")
+    .AddTraceSource ("BackoffCounter", "Changes in the assigned backoff",
+                    MakeTraceSourceAccessor(&DcaTxop::m_boCounter),
+                    "ns3::Traced::Value:Uint32Callback")
   ;
   return tid;
 }
@@ -167,7 +170,8 @@ DcaTxop::DcaTxop ()
     m_currentPacket (0),
     m_failures (0),
     m_successes (0),
-    m_txAttempts (0)
+    m_txAttempts (0),
+    m_boCounter (0xFFFFFFFF)
 {
   NS_LOG_FUNCTION (this);
   m_transmissionListener = new DcaTxop::TransmissionListener (this);
@@ -351,7 +355,8 @@ DcaTxop::DoInitialize ()
 {
   NS_LOG_FUNCTION (this);
   m_dcf->ResetCw ();
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
   ns3::Dcf::DoInitialize ();
 }
 
@@ -543,7 +548,8 @@ DcaTxop::NotifyCollision (void)
 {
   NS_LOG_FUNCTION (this);
   NS_LOG_DEBUG ("collision");
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -601,7 +607,8 @@ DcaTxop::MissedCts (void)
     {
       m_dcf->UpdateFailedCw ();
     }
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -610,11 +617,11 @@ void
 DcaTxop::GotAck (double snr, WifiMode txMode)
 {
   NS_LOG_FUNCTION (this << snr << txMode);
-  m_successes++;
   if (!NeedFragmentation ()
       || IsLastFragment ())
     {
       NS_LOG_DEBUG ("got ack. tx done.");
+      m_successes++;
       if (!m_txOkCallback.IsNull ())
         {
           m_txOkCallback (m_currentHdr);
@@ -625,15 +632,19 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
        */
       m_currentPacket = 0;
 
-      if(m_manager->GetEnvironmentForECA ()){
-        NS_LOG_INFO ("***ECA=true");
-        if(!(m_manager->GetHysteresisForECA ()))
-          m_dcf->ResetCw ();
-        m_dcf->StartBackoffNow (deterministicBackoff(m_dcf->GetCw ()));
-      }else{
-        m_dcf->ResetCw();
-        m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-      }
+      if (m_manager->GetEnvironmentForECA ())
+        {
+          NS_LOG_INFO ("***ECA=true");
+          if (!(m_manager->GetHysteresisForECA ()))
+            m_dcf->ResetCw ();
+          m_dcf->StartBackoffNow (deterministicBackoff(m_dcf->GetCw ()));
+        }
+      else
+        {
+          m_dcf->ResetCw();
+          // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+          m_dcf->StartBackoffNow (tracedRandomFactory ());
+        }
 
       RestartAccessIfNeeded ();
     }
@@ -647,7 +658,6 @@ void
 DcaTxop::MissedAck (void)
 {
   NS_LOG_FUNCTION (this);
-  m_failures++;
   NS_LOG_DEBUG ("missed ack");
   if (!NeedDataRetransmission ())
     {
@@ -667,7 +677,9 @@ DcaTxop::MissedAck (void)
       m_currentHdr.SetRetry ();
       m_dcf->UpdateFailedCw ();
     }
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_failures++;
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -734,14 +746,16 @@ DcaTxop::EndTxNoAck (void)
   NS_LOG_DEBUG ("a transmission that did not require an ACK just finished");
   m_currentPacket = 0;
   
-  if(m_manager->GetEnvironmentForECA ()){
-    if(m_manager->GetHysteresisForECA ()){
+  if(m_manager->GetEnvironmentForECA ())
+    {
       m_dcf->StartBackoffNow (deterministicBackoff (m_dcf->GetCw ()));
     }
-  }else{
-    m_dcf->ResetCw ();
-    m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  }
+  else
+    {
+      m_dcf->ResetCw ();
+      // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+      m_dcf->StartBackoffNow (tracedRandomFactory ());
+    }
   StartAccessIfNeeded ();
 }
 
@@ -756,10 +770,17 @@ DcaTxop::GetFailures (void)
 {
   return m_failures;
 }
+
 uint64_t
 DcaTxop::GetTxAttempts (void)
 {
   return m_txAttempts;
+}
+
+uint32_t
+DcaTxop::GetAssignedBackoff (void)
+{
+  return m_boCounter;
 }
 
 //*
@@ -771,13 +792,24 @@ DcaTxop::ResetStats (void)
   m_failures = 0;
   m_successes = 0;
   m_txAttempts = 0;
+  m_boCounter = 0xFFFFFFFF;
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
 }
 
 uint32_t
 DcaTxop::deterministicBackoff(uint32_t cw)
 {
-  uint32_t backoff = ceil(cw / 2);
-  return backoff;
+  m_boCounter = 0xFFFFFFFF;
+  m_boCounter = ceil(cw / 2);
+  return m_boCounter;
+}
+
+uint32_t
+DcaTxop::tracedRandomFactory(void)
+{
+  m_boCounter = 0xFFFFFFFF;
+  m_boCounter = m_rng->GetNext (0, m_dcf->GetCw ());
+  return m_boCounter;
 }
 
 
