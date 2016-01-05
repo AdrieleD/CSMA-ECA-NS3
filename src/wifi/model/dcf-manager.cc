@@ -941,7 +941,8 @@ void
 DcfManager::SetEnvironmentForECA (bool hysteresis)
 {
   m_isECA = true;
-  if(hysteresis){
+  if(hysteresis == true){
+    std::cout << "Setting hysteresis" << std::endl;
     m_hysteresis = true;
   }
 }

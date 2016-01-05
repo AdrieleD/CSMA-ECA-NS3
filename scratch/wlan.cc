@@ -184,7 +184,8 @@ finaliseSetup(struct sim_config &config)
       ->GetMac()->GetObject<RegularWifiMac>()->GetDcaTxop();
     dca->ResetStats();
 
-    if(config.ECA){
+    if(config.ECA == true){
+      std::cout << "ECA " << config.ECA << " and hysteresis: " << config.hysteresis << std::endl;
       dcfManager->SetEnvironmentForECA(config.hysteresis);
             /* Contention windows */
       if(config.CWmin > 0)

@@ -1,0 +1,13 @@
+#!/usr/local/bin/gnuplot
+FILE=ARG1
+LOAD=ARG2
+#print "File is ", FILE
+#print "Load is ", LOAD
+set xrange [-1:*]
+set xtics 0,1
+set xlabel "Station-#"
+set ylabel "Average throughput of station"
+set y2label "Fraction of collisions"
+set ytics nomirror
+set y2tics auto
+plot FILE u 1:($2*LOAD*1.0*1e-6) title "Mac level throughput" w l, "" u 1:($3/$4) title "Mac level fraction of losses" w l axes x1y2

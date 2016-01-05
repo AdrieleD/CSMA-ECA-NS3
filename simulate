@@ -1,26 +1,31 @@
 #!/usr/local/bin/perl
 use List::Util qw(first max maxstr min minstr reduce shuffle sum);
-my $nMax = 2;
-my $nMin = $ARGV[0];
-$nMax = $ARGV[1];
+my $nMax = $ARGV[0];
+my $nMin = $nMax;
 my $rep = 1;
 my $verbose = false;
 my $tracing = true;
 my $totalSimTime = 10;
 my $seed = -1; #Keep -1 to leave unchanged
 my $ECA = false;
-my $hyst = true;
+my $hyst = false;
 my @command = './waf --cwd=tmp/ --run "scratch/wlan';
 
-if( ($#ARGV+1) > 1){
-	die("Different ranges, please. \n./simulate min max\n")
-		if($nMax - $nMin <= 0);
+foreach my $i (0 .. $#ARGV){
+	$ECA = true
+		if $i eq '--ECA=true';
+	$hyst = true
+		if $i eq '--hyst=true';
+}
+
+if( $nMax > $nMin ){
 	foreach my $i ($nMin..$nMax){
 		foreach my $j (1 .. $rep){
 			$seed = int(rand()*50)
 				if($seed > 0);
-			my @addition = ("--nWifi=$i --verbose=$verbose --seed=$seed --totalSimtime=$totalSimTime 
-				--ECA=$ECA --tracing=$tracing --hysteresis=$hyst\"");
+			my @addition = ("--nWifi=$i --verbose=$verbose --seed=$seed 
+							--totalSimtime=$totalSimTime --ECA=$ECA 
+							--tracing=$tracing --hysteresis=$hyst\"");
 			my @outPut = "@command @addition";
 			print("###Simulating iteration $j of $rep\n");
 			system(@outPut);
@@ -28,16 +33,15 @@ if( ($#ARGV+1) > 1){
 	}
 }else{
 		die("More than one node, please\n")
-			if($nMin <= 1);
+			if($nMax <= 1);
 		foreach my $j (1 .. $rep){
 			$seed = int(rand()*50)
 				if($seed > 0);
-			my @send = ("@command --nWifi=$nMin --verbose=$verbose --seed=$seed --totalSimtime=$totalSimTime 
-				--ECA=$ECA --tracing=$tracing --hysteresis=$hyst\"");
+			my @send = ("@command --nWifi=$nMin --verbose=$verbose 
+						--seed=$seed --totalSimtime=$totalSimTime 
+						--ECA=$ECA --tracing=$tracing 
+						--hysteresis=$hyst\"");
 			print("###Simulating iteration $j of $rep\n");
 			system(@send);
 		}
 }
-
-
-
