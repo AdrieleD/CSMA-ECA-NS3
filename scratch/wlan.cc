@@ -52,6 +52,8 @@ struct sim_config{
   bool hysteresis;
   bool fairShare;
   bool bitmap;
+  bool srConservative;
+  bool srResetMode;
 };
 struct sim_config config;
 
@@ -204,10 +206,18 @@ finaliseSetup(struct sim_config &config)
       ->GetMac()->GetObject<RegularWifiMac>()->GetDcaTxop();
     dca->ResetStats();
 
-    if(config.ECA == true){
-      // std::cout << "ECA " << config.ECA << " and hysteresis: " << config.hysteresis << std::endl;
+
+    if(config.ECA){
       dcfManager->SetEnvironmentForECA(config.hysteresis, config.bitmap);      
-      /* Contention windows */
+      /* Setting all the nasty stuff for Schedule Reset */      
+      if(config.bitmap)
+        {
+          if (config.srConservative)
+            dca->SetScheduleConservative ();
+          if (config.srResetMode)
+            dca->SetScheduleResetMode ();
+        }
+
       if(config.CWmin > 0)
         dca->SetMinCw(config.CWmin);
     }
@@ -243,6 +253,8 @@ main (int argc, char *argv[])
   bool hysteresis = false;
   bool fairShare = false;
   bool bitmap = false;
+  bool srConservative = false;
+  bool srResetMode = false;
 
 
   CommandLine cmd;
@@ -258,6 +270,8 @@ main (int argc, char *argv[])
   cmd.AddValue ("hysteresis", "Do we keep the CurCW after a sxTx?", hysteresis);
   cmd.AddValue ("fairShare", "Do we aggregate according to hysteresis?", fairShare);
   cmd.AddValue ("bitmap", "Are we using Schedule Reset?", bitmap);
+  cmd.AddValue ("srConservative", "Adjusts the Schedule Reset threshold", srConservative);
+  cmd.AddValue ("srResetMode", "By default, schedules will be halved. Set true for Schedule Reset", srResetMode);
 
   cmd.Parse (argc,argv);
 
@@ -271,6 +285,8 @@ main (int argc, char *argv[])
   config.hysteresis = hysteresis;
   config.fairShare = fairShare;
   config.bitmap = bitmap;
+  config.srConservative = srConservative;
+  config.srResetMode = srResetMode;
 
   results.sxTx = 0;
   results.failTx = 0;
@@ -284,15 +300,6 @@ main (int argc, char *argv[])
   {
     std::cout << "Too many wifi csma nodes, no more than 250." << std::endl;
     return 1;
-  }
-
-  if (verbose == true)
-  {
-    // LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
-    // LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
-    // LogComponentEnable("DcfManager", LOG_LEVEL_DEBUG);
-    LogComponentEnable("DcaTxop", LOG_LEVEL_DEBUG);
-    // LogComponentEnable("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
   }
 
   //Creating the log streams
@@ -430,22 +437,33 @@ main (int argc, char *argv[])
 
 
  //Creating the pointers to trace sources for each node
-  for(uint32_t i = 0; i < allNodes.GetN()-1; i++){
-    std::ostringstream n;
-    Ptr<DcaTxop> dca = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->GetMac()->
-      GetObject<RegularWifiMac>()->GetDcaTxop();
-    Ptr<DcfManager> dcfManager = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
-      GetMac()->GetObject<RegularWifiMac>()->GetDcfManager();
-    if(tracing == true){
-      n << i;
-      dca->TraceConnect ("TxFailures",n.str(), MakeBoundCallback(&TraceFailures, tx_stream, &results));
-      dca->TraceConnect ("TxSuccesses", n.str(), MakeBoundCallback(&TraceSuccesses, tx_stream, &results));
-      dca->TraceConnect ("TxAttempts", n.str(), MakeBoundCallback(&TraceTxAttempts, tx_stream, &results));
-      dca->TraceConnect ("BackoffCounter", n.str(), MakeBoundCallback(&TraceAssignedBackoff, backoff_stream));
-      dca->TraceConnect ("Bitmap", n.str(), MakeBoundCallback(&TraceEcaBitmap, bitmap_stream));
-      dcfManager->TraceConnect ("LastTxDuration", n.str(), MakeBoundCallback(&TraceLastTxDuration, tx_stream));
+  for(uint32_t i = 0; i < allNodes.GetN()-1; i++)
+    {
+      std::ostringstream n;
+      Ptr<DcaTxop> dca = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->GetMac()->
+        GetObject<RegularWifiMac>()->GetDcaTxop();
+      Ptr<DcfManager> dcfManager = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
+        GetMac()->GetObject<RegularWifiMac>()->GetDcfManager();
+      if(tracing == true)
+        {
+          n << i;
+          dca->TraceConnect ("TxFailures",n.str(), MakeBoundCallback(&TraceFailures, tx_stream, &results));
+          dca->TraceConnect ("TxSuccesses", n.str(), MakeBoundCallback(&TraceSuccesses, tx_stream, &results));
+          dca->TraceConnect ("TxAttempts", n.str(), MakeBoundCallback(&TraceTxAttempts, tx_stream, &results));
+          dca->TraceConnect ("BackoffCounter", n.str(), MakeBoundCallback(&TraceAssignedBackoff, backoff_stream));
+          dca->TraceConnect ("Bitmap", n.str(), MakeBoundCallback(&TraceEcaBitmap, bitmap_stream));
+          dcfManager->TraceConnect ("LastTxDuration", n.str(), MakeBoundCallback(&TraceLastTxDuration, tx_stream));
+        }
     }
-  }
+
+  if (verbose == true)
+    {
+    // LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
+    // LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
+    // LogComponentEnable("DcfManager", LOG_LEVEL_DEBUG);
+      LogComponentEnable("DcaTxop", LOG_LEVEL_DEBUG);
+    // LogComponentEnable("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
+    }
 
 
   //Configuring the MAC protocol

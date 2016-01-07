@@ -625,6 +625,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
     {
       NS_LOG_DEBUG ("got ack. tx done.");
       m_successes++;
+      AddConsecutiveSuccess();
       if (!m_txOkCallback.IsNull ())
         {
           m_txOkCallback (m_currentHdr);
@@ -641,10 +642,10 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
           if (!(m_manager->GetHysteresisForECA ()))
             m_dcf->ResetCw ();
 
-
           if(m_manager->GetScheduleReset ())
             {
-              if( CanWeReduceTheSchedule ())
+              if( (GetConsecutiveSuccesses () >= GetScheduleResetThreshold ()) 
+                  && CanWeReduceTheSchedule ())
                 {
                   NS_LOG_DEBUG ("We can reduce the schedule");
                   uint32_t size = m_dcf->GetCw () / 2;
@@ -694,6 +695,7 @@ DcaTxop::MissedAck (void)
       m_dcf->UpdateFailedCw ();
     }
   m_failures++;
+  ResetConsecutiveSuccess();
   // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
   m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
@@ -775,6 +777,10 @@ DcaTxop::EndTxNoAck (void)
   StartAccessIfNeeded ();
 }
 
+//*
+//* ECA stats and other parameters being adjusted */
+//*
+
 uint64_t
 DcaTxop::GetSuccesses (void)
 {
@@ -799,9 +805,24 @@ DcaTxop::GetAssignedBackoff (void)
   return m_boCounter;
 }
 
-//*
-//* ECA stats and other parameters being adjusted */
-//*
+uint32_t
+DcaTxop::GetConsecutiveSuccesses (void)
+{
+  return m_consecutiveSuccess;
+}
+
+void
+DcaTxop::AddConsecutiveSuccess (void)
+{
+  m_consecutiveSuccess++;
+}
+
+void
+DcaTxop::ResetConsecutiveSuccess (void)
+{
+  m_consecutiveSuccess = 0;
+}
+
 void
 DcaTxop::ResetStats (void)
 {
@@ -810,15 +831,25 @@ DcaTxop::ResetStats (void)
   m_txAttempts = 0;
   m_boCounter = 0xFFFFFFFF;
   m_ecaBitmap = false;
+  m_consecutiveSuccess = 0;
+  m_settingThreshold = false;
+  m_scheduleResetThreshold = 0;
+  m_scheduleResetMode = false;
+  m_scheduleResetConservative = false;
   m_dcf->StartBackoffNow (tracedRandomFactory ());
 }
 
 uint32_t
 DcaTxop::deterministicBackoff(uint32_t cw)
 {
-  m_boCounter = 0xFFFFFFFF;
-  m_boCounter = ceil(cw / 2);
-  return m_boCounter;
+  uint32_t tmp = ceil(cw / 2);
+  if(!m_settingThreshold)
+    {
+      m_boCounter = 0xFFFFFFFF;
+      m_boCounter = tmp;
+    }
+  m_settingThreshold = false;
+  return tmp;
 }
 
 uint32_t
@@ -834,11 +865,70 @@ DcaTxop::CanWeReduceTheSchedule (void)
 {
   std::vector<bool> *bitmap = m_manager->GetBitmap ();
   NS_LOG_DEBUG ("Got the bitmap from DcfManager " << bitmap->size ());
+  
   /* Updating the traced value */
   m_ecaBitmap = bitmap;
   m_ecaBitmap = (std::vector<bool>*) 0;
-  
-  return true;
+
+  /* Checking the possibility of a schedule reduction */
+  uint32_t currentSize = bitmap->size ();
+  if (!GetScheduleResetMode ())
+    {
+      /* That is, a Schedule Halving */
+      NS_LOG_DEBUG ("Checking for Schedule Halving");
+      for (std::vector<bool>::iterator i = bitmap->begin (); i != bitmap->end (); i++)
+        {
+          NS_LOG_DEBUG ("Bitmap position value: " << *i);
+        }
+      if (bitmap->at (currentSize/2)) 
+        {
+          NS_LOG_DEBUG ("A schedule halving is possible. Size: " << currentSize );
+          return true;
+        }
+    }
+  else
+    {
+      NS_LOG_DEBUG ("Checking for Schedule Reset");
+    }
+
+  return false;
+}
+
+bool
+DcaTxop::GetScheduleResetMode (void)
+{
+  return m_scheduleResetMode;
+}
+
+void
+DcaTxop::SetScheduleResetMode ()
+{
+  m_scheduleResetMode = true;
+}
+
+uint32_t
+DcaTxop::GetScheduleResetThreshold (void)
+{
+  return m_scheduleResetThreshold;
+}
+
+void
+DcaTxop::SetScheduleResetThreshold (void)
+{
+  m_settingThreshold = true;
+  m_scheduleResetThreshold = 1;
+
+  if(m_scheduleResetConservative)
+    {
+      m_scheduleResetThreshold = ceil (m_dcf->GetCwMax () / 
+        deterministicBackoff (m_dcf->GetCw ()));
+    }
+}
+
+void
+DcaTxop::SetScheduleConservative (void)
+{
+  m_scheduleResetConservative = true;
 }
 
 

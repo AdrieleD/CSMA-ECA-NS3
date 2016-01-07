@@ -169,6 +169,15 @@ public:
   uint32_t deterministicBackoff (uint32_t cw);
   uint32_t tracedRandomFactory (void);
   bool CanWeReduceTheSchedule (void);
+  uint32_t GetConsecutiveSuccesses (void);
+  void AddConsecutiveSuccess (void);
+  void ResetConsecutiveSuccess (void);
+  uint32_t GetScheduleResetThreshold (void);
+  void SetScheduleResetThreshold (void);
+  void SetScheduleConservative (void);
+  bool GetScheduleResetMode (void);
+  void SetScheduleResetMode (void);
+
   //For tracing the bitmap
   typedef void (* TracedEcaBitmap) (std::vector<bool> *bmold, std::vector<bool> *bmnew); 
 
@@ -362,6 +371,12 @@ private:
   Ptr<const Packet> m_currentPacket;
   WifiMacHeader m_currentHdr;
   uint8_t m_fragmentNumber;
+
+  uint32_t m_consecutiveSuccess;
+  bool m_settingThreshold;
+  uint32_t m_scheduleResetThreshold;
+  bool m_scheduleResetConservative;
+  bool m_scheduleResetMode;
 
   TracedValue<uint64_t> m_failures;
   TracedValue<uint64_t> m_successes;

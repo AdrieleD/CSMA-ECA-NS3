@@ -962,7 +962,7 @@ DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap)
     NS_LOG_DEBUG ("Setting Schedule Reset");
     m_scheduleReset = true;
     DcfState *state = *(m_states.begin ());
-    uint32_t size = state->GetCw () / 2;
+    uint32_t size = state->GetCw () / 2 + 1;
     StartNewEcaBitmap (size);
   }
 }
@@ -1006,8 +1006,8 @@ DcfManager::UpdateEcaBitmap ()
 {
   if(isNextSlotBusy ()){
     DcfState *state = *(m_states. begin());
-    uint32_t position = state->GetBackoffSlots () -1;
-    if (position <= m_ecaBitmap.size ())
+    uint32_t position = m_ecaBitmap.size () - state->GetBackoffSlots () - 1;
+    if (position < m_ecaBitmap.size ())
       m_ecaBitmap.at(position) = true;
   }
   m_isNextSlotBusy = false;
