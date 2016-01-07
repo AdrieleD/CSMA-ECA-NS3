@@ -1,0 +1,30 @@
+#!/usr/local/bin/perl
+my $column = 3;
+my $input = 'bitmap.log';
+open (my $f, '<', $input)
+	or die ("Could not open\n");
+
+my $i = 1;
+my $oldData;
+my $changes = 0;
+my $lastChange;
+NEXT: while (my $row = <$f>)
+	{
+		chomp($row);
+		my @data = split(/\s+/, $row);
+		if ($i != 0)
+			{
+				$oldData = $data[$column];
+				$i = 0;
+				next NEXT;
+			}
+		if ($data[$column] != $oldData)
+			{
+				$changes++;
+				$oldData = $data[$column];
+				$lastChange = $data[0];
+			}
+	}
+
+print ("Number of changes: $changes, last one at $lastChange secs.\n")
+	if $changes > 0;

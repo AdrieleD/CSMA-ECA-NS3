@@ -51,6 +51,7 @@ struct sim_config{
   uint32_t CWmin;
   bool hysteresis;
   bool fairShare;
+  bool bitmap;
 };
 struct sim_config config;
 
@@ -113,7 +114,7 @@ void
 TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
-  *stream->GetStream() << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
+  *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
   results->failTx++;
   results->lastCollision = Simulator::Now().GetMicroSeconds();
 }
@@ -122,7 +123,7 @@ void
 TraceSuccesses(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
-  *stream->GetStream() << m_now << " " << context << " " << SXTX << " " << newValue << std::endl; 
+  *stream->GetStream () << m_now << " " << context << " " << SXTX << " " << newValue << std::endl; 
   results->sxTx++;
 }
 
@@ -130,7 +131,7 @@ void
 TraceTxAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
-  *stream->GetStream() << m_now << " " << context << " " << TX << " " << newValue << std::endl; 
+  *stream->GetStream () << m_now << " " << context << " " << TX << " " << newValue << std::endl; 
   results->txAttempts++;
 }
 
@@ -138,14 +139,33 @@ void
 TraceAssignedBackoff(Ptr<OutputStreamWrapper> stream, std::string context, uint32_t oldValue, uint32_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   if(newValue != 0xFFFFFFFF)
-    *stream->GetStream() << m_now << " " << context << " " << BO << " " << newValue << std::endl; 
+    *stream->GetStream () << m_now << " " << context << " " << BO << " " << newValue << std::endl; 
 }
 
 void
 TraceLastTxDuration(Ptr<OutputStreamWrapper> stream, std::string context, uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   if(newValue != 0xFFFFFFFFFFFFFFFF)
-    *stream->GetStream() << m_now << " " << context << " " << txDUR << " " << newValue << std::endl; 
+    *stream->GetStream () << m_now << " " << context << " " << txDUR << " " << newValue << std::endl; 
+}
+
+void
+TraceEcaBitmap(Ptr<OutputStreamWrapper> stream, std::string context, std::vector<bool> *bmold, std::vector<bool> *bmnew)
+{
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+
+  if(bmnew)
+    {
+      *stream->GetStream () << m_now << " " << context << " " << bmnew->size() << " ";
+      for (std::vector<bool>::iterator i = bmnew->begin(); i != bmnew->end(); i++)
+        {
+          uint32_t slot = 0;
+          if (*i == true)
+            slot = 1;
+          *stream->GetStream () << slot;
+        }
+      *stream->GetStream () << std::endl;
+    }
 }
 
 /**
@@ -185,9 +205,9 @@ finaliseSetup(struct sim_config &config)
     dca->ResetStats();
 
     if(config.ECA == true){
-      std::cout << "ECA " << config.ECA << " and hysteresis: " << config.hysteresis << std::endl;
-      dcfManager->SetEnvironmentForECA(config.hysteresis);
-            /* Contention windows */
+      // std::cout << "ECA " << config.ECA << " and hysteresis: " << config.hysteresis << std::endl;
+      dcfManager->SetEnvironmentForECA(config.hysteresis, config.bitmap);      
+      /* Contention windows */
       if(config.CWmin > 0)
         dca->SetMinCw(config.CWmin);
     }
@@ -214,6 +234,7 @@ main (int argc, char *argv[])
   std::string resultsName ("results.log");
   std::string txLog ("tx.log");
   std::string backoffLog ("detBackoff.log");
+  std::string bitmapLog ("bitmap.log");
   double totalSimtime = 10; //in seconds
   double startClientApp = 2;
   int32_t seed = -1;
@@ -221,6 +242,7 @@ main (int argc, char *argv[])
   uint32_t CWmin = 0;
   bool hysteresis = false;
   bool fairShare = false;
+  bool bitmap = false;
 
 
   CommandLine cmd;
@@ -235,6 +257,7 @@ main (int argc, char *argv[])
   cmd.AddValue ("CWmin", "Minimum contention window", CWmin);
   cmd.AddValue ("hysteresis", "Do we keep the CurCW after a sxTx?", hysteresis);
   cmd.AddValue ("fairShare", "Do we aggregate according to hysteresis?", fairShare);
+  cmd.AddValue ("bitmap", "Are we using Schedule Reset?", bitmap);
 
   cmd.Parse (argc,argv);
 
@@ -247,6 +270,7 @@ main (int argc, char *argv[])
   config.CWmin = CWmin;
   config.hysteresis = hysteresis;
   config.fairShare = fairShare;
+  config.bitmap = bitmap;
 
   results.sxTx = 0;
   results.failTx = 0;
@@ -277,6 +301,7 @@ main (int argc, char *argv[])
   Ptr<OutputStreamWrapper> results_stream = asciiTraceHelper.CreateFileStream (resultsName, __gnu_cxx::ios_base::app);
   Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream(txLog);
   Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream(backoffLog);
+  Ptr<OutputStreamWrapper> bitmap_stream = asciiTraceHelper.CreateFileStream(bitmapLog);
 
   //Setting simulation seed
   if(seed >= 0)
@@ -417,7 +442,7 @@ main (int argc, char *argv[])
       dca->TraceConnect ("TxSuccesses", n.str(), MakeBoundCallback(&TraceSuccesses, tx_stream, &results));
       dca->TraceConnect ("TxAttempts", n.str(), MakeBoundCallback(&TraceTxAttempts, tx_stream, &results));
       dca->TraceConnect ("BackoffCounter", n.str(), MakeBoundCallback(&TraceAssignedBackoff, backoff_stream));
-
+      dca->TraceConnect ("Bitmap", n.str(), MakeBoundCallback(&TraceEcaBitmap, bitmap_stream));
       dcfManager->TraceConnect ("LastTxDuration", n.str(), MakeBoundCallback(&TraceLastTxDuration, tx_stream));
     }
   }

@@ -6,7 +6,7 @@ LOAD=ARG2
 set xrange [-1:*]
 set xtics 0,1
 set xlabel "Station-#"
-set ylabel "Average throughput of station"
+set ylabel "Average throughput of station (Mbps)"
 set y2label "Fraction of collisions"
 set ytics nomirror
 set y2tics auto

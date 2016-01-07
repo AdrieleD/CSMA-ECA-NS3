@@ -161,6 +161,9 @@ DcaTxop::GetTypeId (void)
     .AddTraceSource ("BackoffCounter", "Changes in the assigned backoff",
                     MakeTraceSourceAccessor(&DcaTxop::m_boCounter),
                     "ns3::Traced::Value:Uint32Callback")
+    .AddTraceSource ("Bitmap", "The bitmap state after every cycle",
+                    MakeTraceSourceAccessor(&DcaTxop::m_ecaBitmap),
+                    "ns3::Traced::Value::TracedEcaBitmap")
   ;
   return tid;
 }
@@ -634,9 +637,22 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
 
       if (m_manager->GetEnvironmentForECA ())
         {
-          NS_LOG_INFO ("***ECA=true");
+          NS_LOG_DEBUG ("***ECA=true");
           if (!(m_manager->GetHysteresisForECA ()))
             m_dcf->ResetCw ();
+
+
+          if(m_manager->GetScheduleReset ())
+            {
+              if( CanWeReduceTheSchedule ())
+                {
+                  NS_LOG_DEBUG ("We can reduce the schedule");
+                  uint32_t size = m_dcf->GetCw () / 2;
+                  m_manager->StartNewEcaBitmap (size);
+
+                }
+            }
+
           m_dcf->StartBackoffNow (deterministicBackoff(m_dcf->GetCw ()));
         }
       else
@@ -793,6 +809,7 @@ DcaTxop::ResetStats (void)
   m_successes = 0;
   m_txAttempts = 0;
   m_boCounter = 0xFFFFFFFF;
+  m_ecaBitmap = false;
   m_dcf->StartBackoffNow (tracedRandomFactory ());
 }
 
@@ -805,11 +822,23 @@ DcaTxop::deterministicBackoff(uint32_t cw)
 }
 
 uint32_t
-DcaTxop::tracedRandomFactory(void)
+DcaTxop::tracedRandomFactory (void)
 {
   m_boCounter = 0xFFFFFFFF;
   m_boCounter = m_rng->GetNext (0, m_dcf->GetCw ());
   return m_boCounter;
+}
+
+bool
+DcaTxop::CanWeReduceTheSchedule (void)
+{
+  std::vector<bool> *bitmap = m_manager->GetBitmap ();
+  NS_LOG_DEBUG ("Got the bitmap from DcfManager " << bitmap->size ());
+  /* Updating the traced value */
+  m_ecaBitmap = bitmap;
+  m_ecaBitmap = (std::vector<bool>*) 0;
+  
+  return true;
 }
 
 

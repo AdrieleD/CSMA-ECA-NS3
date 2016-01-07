@@ -336,6 +336,8 @@ DcfManager::DcfManager ()
     m_lowListener (0),
     m_isECA (false),
     m_hysteresis (false),
+    m_scheduleReset (false),
+    m_isNextSlotBusy (false),
     m_lastTracedTxDuration (0xFFFFFFFFFFFFFFFF)
 {
   NS_LOG_FUNCTION (this);
@@ -504,6 +506,7 @@ DcfManager::RequestAccess (DcfState *state)
     {
       return;
     }
+  m_isNextSlotBusy = false;
   UpdateBackoff ();
   NS_ASSERT (!state->IsAccessRequested ());
   state->NotifyAccessRequested ();
@@ -583,6 +586,7 @@ void
 DcfManager::AccessTimeout (void)
 {
   NS_LOG_FUNCTION (this);
+  m_isNextSlotBusy = false;
   UpdateBackoff ();
   DoGrantAccess ();
   DoRestartAccessTimeoutIfNeeded ();
@@ -661,6 +665,11 @@ DcfManager::UpdateBackoff (void)
           MY_DEBUG ("dcf " << k << " dec backoff slots=" << n);
           Time backoffUpdateBound = backoffStart + MicroSeconds (n * m_slotTimeUs);
           state->UpdateBackoffSlotsNow (n, backoffUpdateBound);
+
+          if(m_scheduleReset && i == m_states.begin ())
+            {
+              UpdateEcaBitmap ();
+            }
         }
     }
 }
@@ -710,6 +719,7 @@ DcfManager::NotifyRxStartNow (Time duration)
 {
   NS_LOG_FUNCTION (this << duration);
   MY_DEBUG ("rx start for=" << duration);
+  m_isNextSlotBusy = true;
   UpdateBackoff ();
   m_lastRxStart = Simulator::Now ();
   m_lastRxDuration = duration;
@@ -762,6 +772,7 @@ DcfManager::NotifyMaybeCcaBusyStartNow (Time duration)
 {
   NS_LOG_FUNCTION (this << duration);
   MY_DEBUG ("busy start for " << duration);
+  m_isNextSlotBusy = true;
   UpdateBackoff ();
   m_lastBusyStart = Simulator::Now ();
   m_lastBusyDuration = duration;
@@ -938,12 +949,21 @@ DcfManager::NotifyCtsTimeoutResetNow ()
    *
   */
 void
-DcfManager::SetEnvironmentForECA (bool hysteresis)
+DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap)
 {
   m_isECA = true;
-  if(hysteresis == true){
-    std::cout << "Setting hysteresis" << std::endl;
+  if(hysteresis)
+    {
+    NS_LOG_DEBUG ("Setting hysteresis");
     m_hysteresis = true;
+  }
+  if(bitmap)
+  {
+    NS_LOG_DEBUG ("Setting Schedule Reset");
+    m_scheduleReset = true;
+    DcfState *state = *(m_states.begin ());
+    uint32_t size = state->GetCw () / 2;
+    StartNewEcaBitmap (size);
   }
 }
 
@@ -964,6 +984,45 @@ DcfManager::UpdateTracedTxDuration()
 {
   m_lastTracedTxDuration = 0xFFFFFFFFFFFFFFFF;
   m_lastTracedTxDuration = m_lastTxDuration.GetMicroSeconds();
+}
+
+void 
+DcfManager::StartNewEcaBitmap (uint32_t size)
+{
+  if(m_ecaBitmap.size () > 0)
+    m_ecaBitmap.clear ();
+  NS_LOG_DEBUG ("Creating new bitmap of size :" << size);
+  m_ecaBitmap.assign(size, false);
+}
+
+std::vector<bool>* 
+DcfManager::GetBitmap (void)
+{
+  return &m_ecaBitmap;
+}
+
+void 
+DcfManager::UpdateEcaBitmap ()
+{
+  if(isNextSlotBusy ()){
+    DcfState *state = *(m_states. begin());
+    uint32_t position = state->GetBackoffSlots () -1;
+    if (position <= m_ecaBitmap.size ())
+      m_ecaBitmap.at(position) = true;
+  }
+  m_isNextSlotBusy = false;
+}
+
+bool
+DcfManager::GetScheduleReset ()
+{
+  return m_scheduleReset;
+}
+
+bool 
+DcfManager::isNextSlotBusy (void)
+{
+  return m_isNextSlotBusy;
 }
 
 } //namespace ns3

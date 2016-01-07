@@ -415,10 +415,15 @@ public:
    *
    *
   */
-  void SetEnvironmentForECA (bool hysteresis);
+  void SetEnvironmentForECA (bool hysteresis, bool bitmap);
   bool GetEnvironmentForECA (void);
   bool GetHysteresisForECA (void);
   void UpdateTracedTxDuration (void);
+  void StartNewEcaBitmap (uint32_t size);
+  std::vector<bool>* GetBitmap (void);
+  void UpdateEcaBitmap (void);
+  bool GetScheduleReset (void);
+  bool isNextSlotBusy (void);
 
 
 private:
@@ -559,6 +564,10 @@ private:
   LowDcfListener* m_lowListener;
   bool m_isECA;
   bool m_hysteresis;
+  bool m_scheduleReset;
+  std::vector<bool> m_ecaBitmap;
+  bool m_isNextSlotBusy;
+
 
   TracedValue<uint64_t> m_lastTracedTxDuration;
 };

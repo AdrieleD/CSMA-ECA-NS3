@@ -9,13 +9,18 @@ my $totalSimTime = 10;
 my $seed = -1; #Keep -1 to leave unchanged
 my $ECA = false;
 my $hyst = false;
+my $bitmap = false;
 my @command = './waf --cwd=tmp/ --run "scratch/wlan';
 
-foreach my $i (0 .. $#ARGV){
+foreach (@ARGV){
 	$ECA = true
-		if $i eq '--ECA=true';
+		if $_ eq '--eca';
 	$hyst = true
-		if $i eq '--hyst=true';
+		if $_ eq '--hyst';
+	$bitmap = true
+		if $_ eq '--bitmap';
+	$verbose = true
+		if $_ eq '--verbose'
 }
 
 if( $nMax > $nMin ){
@@ -25,7 +30,7 @@ if( $nMax > $nMin ){
 				if($seed > 0);
 			my @addition = ("--nWifi=$i --verbose=$verbose --seed=$seed 
 							--totalSimtime=$totalSimTime --ECA=$ECA 
-							--tracing=$tracing --hysteresis=$hyst\"");
+							--tracing=$tracing --hysteresis=$hyst --bitmap=$bitmap\"");
 			my @outPut = "@command @addition";
 			print("###Simulating iteration $j of $rep\n");
 			system(@outPut);
@@ -33,14 +38,14 @@ if( $nMax > $nMin ){
 	}
 }else{
 		die("More than one node, please\n")
-			if($nMax <= 1);
+			if($nMax < 1);
 		foreach my $j (1 .. $rep){
 			$seed = int(rand()*50)
 				if($seed > 0);
 			my @send = ("@command --nWifi=$nMin --verbose=$verbose 
 						--seed=$seed --totalSimtime=$totalSimTime 
 						--ECA=$ECA --tracing=$tracing 
-						--hysteresis=$hyst\"");
+						--hysteresis=$hyst --bitmap=$bitmap\"");
 			print("###Simulating iteration $j of $rep\n");
 			system(@send);
 		}

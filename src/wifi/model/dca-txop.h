@@ -168,6 +168,9 @@ public:
   void ResetStats (void);
   uint32_t deterministicBackoff (uint32_t cw);
   uint32_t tracedRandomFactory (void);
+  bool CanWeReduceTheSchedule (void);
+  //For tracing the bitmap
+  typedef void (* TracedEcaBitmap) (std::vector<bool> *bmold, std::vector<bool> *bmnew); 
 
 private:
   class TransmissionListener;
@@ -364,6 +367,7 @@ private:
   TracedValue<uint64_t> m_successes;
   TracedValue<uint64_t> m_txAttempts;
   TracedValue<uint32_t> m_boCounter;
+  TracedValue<std::vector<bool> *> m_ecaBitmap;
 
 };
 
