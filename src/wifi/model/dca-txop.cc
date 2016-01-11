@@ -628,7 +628,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
     {
       NS_LOG_DEBUG ("got ack. tx done.");
       m_successes++;
-      // AddConsecutiveSuccess();
+      AddConsecutiveSuccess();
       if (!m_txOkCallback.IsNull ())
         {
           m_txOkCallback (m_currentHdr);
@@ -648,10 +648,13 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
 
           if (m_manager->GetScheduleReset ())
             {
+              NS_LOG_DEBUG ("Checking the bitmap for Schedule Reset. Sx #" << GetConsecutiveSuccesses ()
+                << " thresh: " << GetScheduleResetActivationThreshold ());
               if (GetConsecutiveSuccesses () >= GetScheduleResetActivationThreshold ())
                 {
                   if (!m_srBeingFilled)
                     {
+                      NS_LOG_DEBUG ("Starting to fill the bitmap");
                       uint32_t size = m_dcf->GetCw () / 2 + 1;
                       m_manager->StartNewEcaBitmap (size);
                       m_srBeingFilled = true;

@@ -962,12 +962,11 @@ DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap)
   }
   if(bitmap == true)
   {
-    NS_LOG_DEBUG ("Setting Schedule Reset");
     m_scheduleReset = true;
+    NS_LOG_DEBUG ("Setting Schedule Reset: " << m_scheduleReset);
     DcfState *state = *(m_states.begin ());
     uint32_t size = state->GetCw () / 2 + 1;
-    NS_LOG_DEBUG (""<< size);
-    // StartNewEcaBitmap (size);
+    StartNewEcaBitmap (size);
   }
 }
 
