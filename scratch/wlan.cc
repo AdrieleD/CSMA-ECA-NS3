@@ -43,7 +43,10 @@ NS_LOG_COMPONENT_DEFINE ("wlanFirstExample");
 struct sim_config{
   uint32_t nWifi;
   Time lastReport;
+  bool tracing;
+  bool verbose;
   double totalSimtime;
+  double startClientApp;
   ApplicationContainer servers; //All the applications in the simulation
   uint32_t payload;
   NodeContainer *nodes;
@@ -59,9 +62,9 @@ struct sim_config{
 struct sim_config config;
 
 struct sim_results{
-  uint32_t sxTx;
-  uint32_t failTx;
-  uint32_t txAttempts;
+  uint64_t sxTx;
+  uint64_t failTx;
+  uint64_t txAttempts;
   uint64_t lastCollision;
 };
 struct sim_results results;
@@ -90,10 +93,12 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
   }
 
   std::cout << "***RESULTS***" << std::endl;
+  std::cout << "-Total Simulation time (s): " << simulationDuration.GetSeconds () << std::endl;
   std::cout << "-Total Throughput: " << rx_bits / simulationDuration.GetSeconds() << std::endl;
   std::cout << "-Total received datagrams: " << total_rx_packets << std::endl;
-
-  std::cout << "-Fraction of tx resulting in collisions: " << col/attempts << std::endl;
+  double colFrac = 0;
+  if (col > 0) colFrac = col/attempts;
+  std::cout << "-Fraction of tx resulting in collisions: " << colFrac << std::endl;
   std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs." << std::endl;
   uint64_t index = attempts - (col + sx);
   if(index != 0)
@@ -181,54 +186,66 @@ void
 finaliseSetup(struct sim_config &config)
 {
   NodeContainer *allNodes (config.nodes);
-  for(uint32_t i = 0; i < allNodes->GetN()-1; i++){
-    for(uint32_t j = 0; j < allNodes->GetN()-1; j++){
+  for(uint32_t i = 0; i < allNodes->GetN ()-1; i++){
+    for(uint32_t j = 0; j < allNodes->GetN ()-1; j++){
       if(i == j)
         continue;
 
       /* Configuring the ARP entries to avoid control traffic */
-      Address mac = allNodes->Get(j)->GetDevice(0)->GetAddress();
+      Address mac = allNodes->Get (j)->GetDevice (0)->GetAddress ();
         /* Ipv4 is the forwarding table class */
-      Ipv4Address ip = allNodes->Get(j)->GetObject<Ipv4>()->GetAddress(1,0).GetLocal();
-      Ptr<ArpCache> arpCache = allNodes->Get(i)->GetObject<Ipv4L3Protocol>()->GetInterface(1)->GetArpCache();
+      Ipv4Address ip = allNodes->Get (j)->GetObject<Ipv4> ()->GetAddress (1,0).GetLocal ();
+      Ptr<ArpCache> arpCache = allNodes->Get (i)->GetObject<Ipv4L3Protocol> ()->GetInterface (1)->GetArpCache ();
 
       if(arpCache == NULL)
-        arpCache = CreateObject<ArpCache>();
-      arpCache->SetAliveTimeout(Seconds (config.totalSimtime + 1));
-      ArpCache::Entry *entry = arpCache->Add(ip);
+        arpCache = CreateObject<ArpCache>( );
+      arpCache->SetAliveTimeout (Seconds (config.totalSimtime + config.startClientApp));
+      ArpCache::Entry *entry = arpCache->Add (ip);
       entry->MarkWaitReply(0);
       entry->MarkAlive(mac);
     }
 
-    /* Resetting node's state and stats */
-    Ptr<DcfManager> dcfManager = allNodes->Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()
-      ->GetMac()->GetObject<RegularWifiMac>()->GetDcfManager();
-    Ptr<DcaTxop> dca = allNodes->Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()
-      ->GetMac()->GetObject<RegularWifiMac>()->GetDcaTxop();
-    dca->ResetStats();
+    if(config.ECA == true)
+      {
+        /* Resetting node's state and stats */
+        Ptr<DcfManager> dcfManager = allNodes->Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
+          ->GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+        Ptr<DcaTxop> dca = allNodes->Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
+          ->GetMac ()->GetObject<RegularWifiMac> ()->GetDcaTxop ();
+        dca->ResetStats ();
+        dcfManager->SetEnvironmentForECA (config.hysteresis, config.bitmap);      
+        /* Setting all the nasty stuff for Schedule Reset */      
+        if(config.bitmap == true)
+          {
+            dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
+            if (config.srConservative)
+              dca->SetScheduleConservative ();
+            if (config.srResetMode)
+              dca->SetScheduleResetMode ();
+          }
 
-
-    if(config.ECA){
-      dcfManager->SetEnvironmentForECA(config.hysteresis, config.bitmap);      
-      /* Setting all the nasty stuff for Schedule Reset */      
-      if(config.bitmap)
-        {
-          dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
-          if (config.srConservative)
-            dca->SetScheduleConservative ();
-          if (config.srResetMode)
-            dca->SetScheduleResetMode ();
-        }
-
-      if(config.CWmin > 0)
-        dca->SetMinCw(config.CWmin);
+        if(config.CWmin > 0)
+          dca->SetMinCw(config.CWmin);
     }
+
 
     /* Setting the BER
     Ptr<YanWifiPhy> phy = allNodes->Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
       GetPhy()->GetObject<YansWifiPhy>();
     phy->SetFrameMinBer(config.frameMinBer);*/
   }
+
+  std::cout << "###Simulation parameters" << std::endl;
+  std::cout << "-Simulation time: " << config.totalSimtime << std::endl;
+  std::cout << "-Tracing: " << config.tracing << std::endl;
+  std::cout << "-Verbose: " << config.verbose << std::endl;
+  std::cout << "-ECA: " << config.ECA << std::endl;
+  std::cout << "-hysteresis: " << config.hysteresis << std::endl;
+  std::cout << "-fairShare: " << config.fairShare << std::endl;
+  std::cout << "-bitmap: " << config.bitmap << std::endl;
+  std::cout << "-srConservative: " << config.srConservative << std::endl;
+  std::cout << "-srActivationThreshold: " << config.srActivationThreshold << std::endl;
+  std::cout << "-srResetMode: " << config.srResetMode << std::endl;
 }
 
 int 
@@ -236,7 +253,7 @@ main (int argc, char *argv[])
 {
   bool verbose = false;
   uint32_t nWifi = 2;
-  bool tracing = false;
+  bool tracing = true;
   std::string dataRate("ErpOfdmRate54Mbps");
   std::string controlRate("ErpOfdmRate54Mbps");
   uint16_t destPort = 10000;
@@ -281,7 +298,10 @@ main (int argc, char *argv[])
 
   config.nWifi = nWifi;
   config.lastReport = ns3::Time(MicroSeconds(0));
+  config.tracing = tracing;
+  config.verbose = verbose;
   config.totalSimtime = totalSimtime;
+  config.startClientApp = startClientApp;
   config.payload = payload;
   config.nodes = new NodeContainer();
   config.ECA = ECA;
@@ -311,30 +331,33 @@ main (int argc, char *argv[])
   AsciiTraceHelper asciiTraceHelper;
   Ptr<OutputStreamWrapper> debug_log = asciiTraceHelper.CreateFileStream (logName);
   Ptr<OutputStreamWrapper> results_stream = asciiTraceHelper.CreateFileStream (resultsName, __gnu_cxx::ios_base::app);
-  Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream(txLog);
-  Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream(backoffLog);
-  Ptr<OutputStreamWrapper> bitmap_stream = asciiTraceHelper.CreateFileStream(bitmapLog);
+  Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream (txLog);
+  Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
+  Ptr<OutputStreamWrapper> bitmap_stream = asciiTraceHelper.CreateFileStream (bitmapLog);
 
   //Setting simulation seed
   if(seed >= 0)
-    RngSeedManager::SetSeed(seed);
+    RngSeedManager::SetSeed (seed);
 
   NodeContainer wifiStaNodes;
   wifiStaNodes.Create (nWifi-1);	
-  //Setting node-0 as the AP
+
   NodeContainer wifiApNode;
-  wifiApNode.Create(1);
+  wifiApNode.Create (1);
+
+  //first node of allNodes container is the AP.
+
   NodeContainer allNodes;
-  allNodes.Add(wifiStaNodes);
-  allNodes.Add(wifiApNode);
-  config.nodes->Add(allNodes);
+  allNodes.Add (wifiStaNodes);
+  allNodes.Add (wifiApNode);
+  config.nodes->Add (allNodes);
 
    //Checking the containers have the same number of nodes
-  if(wifiStaNodes.GetN() + wifiApNode.GetN() != allNodes.GetN()){
-    std::cout << "Emergency exit" << std::endl;
-    return 1;
-  }
-
+  if(wifiStaNodes.GetN() + wifiApNode.GetN() != allNodes.GetN())
+    {
+      std::cout << "Emergency exit" << std::endl;
+      return 1;
+    }
 
   YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
   YansWifiPhyHelper phy = YansWifiPhyHelper::Default ();
@@ -344,32 +367,31 @@ main (int argc, char *argv[])
   wifi.SetStandard (WIFI_PHY_STANDARD_80211g);
   //this wifi station manager uses the same rate for all packets. Even RTS
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager",
-																"DataMode", StringValue(dataRate),
-                                "AckMode", StringValue(dataRate),
-																"ControlMode", StringValue(controlRate));
+                                "DataMode", StringValue (dataRate),
+                                "AckMode", StringValue (dataRate),
+																"ControlMode", StringValue (controlRate));
 
-
-
-  Ssid ssid = Ssid("wlan-test");
+  Ssid ssid = Ssid ("wlan-test");
   NqosWifiMacHelper clientMac = NqosWifiMacHelper::Default ();
   NqosWifiMacHelper apMac = NqosWifiMacHelper::Default ();
+  
   clientMac.SetType ("ns3::StaWifiMac",
                "Ssid", SsidValue (ssid),
                "ActiveProbing", BooleanValue (false));
-
-  NetDeviceContainer staDevices;
-  staDevices = wifi.Install (phy, clientMac, wifiStaNodes);
 
   apMac.SetType ("ns3::ApWifiMac",
                "Ssid", SsidValue (ssid),
                "BeaconGeneration", BooleanValue (true));
 
+  NetDeviceContainer staDevices;
+  staDevices = wifi.Install (phy, clientMac, wifiStaNodes);
+
   NetDeviceContainer apDevices;
   apDevices = wifi.Install (phy, apMac, wifiApNode);
 
   NetDeviceContainer allDevices;
-  allDevices.Add(apDevices);
-  allDevices.Add(staDevices);
+  allDevices.Add (apDevices);
+  allDevices.Add (staDevices);
   
 
   MobilityHelper mobility;
@@ -381,13 +403,15 @@ main (int argc, char *argv[])
    */
   Vector apPos = Vector(0.0, 0.0, 0.0);
   Vector staPos = Vector(2.0, 0.0, 0.0);
-  positionAlloc->Add(Vector(apPos));
+  
+  positionAlloc->Add (Vector(apPos));
   //Filling in the position of every sta node.
   //Remember node-0 is the AP was already added.
-  for(uint32_t i = 1; i < nWifi; i++){
-		positionAlloc->Add(Vector(staPos));
+  for(uint32_t i = 1; i < nWifi; i++)
+  {
+		positionAlloc->Add (Vector (staPos));
   }
-  mobility.SetPositionAllocator(positionAlloc);
+  mobility.SetPositionAllocator (positionAlloc);
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.Install (wifiApNode);
   mobility.Install (wifiStaNodes);
@@ -405,7 +429,7 @@ main (int argc, char *argv[])
   Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
 
 
-  //Configuring tracing at the AP
+  //Configuring tracing at the AP now that we configured L2 elements
   phy.SetPcapDataLinkType(YansWifiPhyHelper::DLT_IEEE802_11_RADIO); 
   phy.EnablePcap("cap", apDevices.Get(0), true);
 
@@ -416,76 +440,70 @@ main (int argc, char *argv[])
     *debug_log->GetStream() << "Destination: " << ipDestination << std::endl;
   }
  
-  for(uint32_t i = 0; i < nWifi-1; i++){
+  for(uint32_t i = 0; i < allNodes.GetN () -1; i++){
 		//Creating a server for each client
 		UdpServerHelper server (destPort + i);
-		ApplicationContainer serverApp = server.Install(wifiApNode.Get(0));
-		serverApp.Start(Seconds (startClientApp-1.0));
-		serverApp.Stop(Seconds (totalSimtime + 1));
-    //Adding serverApps for all clients into a container for processing
+		ApplicationContainer serverApp = server.Install (wifiApNode.Get (0));
+		serverApp.Start (Seconds (startClientApp-1.0));
+		serverApp.Stop (Seconds (startClientApp + totalSimtime));
+    //Adding serverApp for all clients into a container for processing
     config.servers.Add(serverApp);
 
 		UdpClientHelper client (ipDestination, destPort + i);
     Time intervalTest = Seconds((payload * 8.0) / (txRate * 1e6));
     // uint64_t maxP = 4294967295;
-		client.SetAttribute("MaxPackets", UintegerValue (4294967295u));
-    client.SetAttribute("Interval", TimeValue(intervalTest));
-		client.SetAttribute("PacketSize", UintegerValue(payload));
+		client.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
+    client.SetAttribute ("Interval", TimeValue (intervalTest));
+		client.SetAttribute ("PacketSize", UintegerValue (payload));
 
-		ApplicationContainer clientApp = client.Install(wifiStaNodes.Get(i));
+		ApplicationContainer clientApp = client.Install (wifiStaNodes.Get (i));
 		clientApp.Start(Seconds (startClientApp));
-		clientApp.Stop(Seconds (totalSimtime + 1));
+		clientApp.Stop(Seconds (startClientApp + totalSimtime));
 
     std::cout << "-Setting UDP flow " << i << "/" << nWifi-1 << " to AP " << ipDestination
-      << ", node: " << wifiStaNodes.Get(i)->GetId() << std::endl;
+      << ", node: " << wifiStaNodes.Get (i)->GetId () << std::endl;
   }
 
 
  //Creating the pointers to trace sources for each node
-  for(uint32_t i = 0; i < allNodes.GetN()-1; i++)
+  for(uint32_t i = 0; i < allNodes.GetN () - 1; i++)
     {
       std::ostringstream n;
-      Ptr<DcaTxop> dca = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->GetMac()->
-        GetObject<RegularWifiMac>()->GetDcaTxop();
-      Ptr<DcfManager> dcfManager = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
-        GetMac()->GetObject<RegularWifiMac>()->GetDcfManager();
+      Ptr<DcaTxop> dca = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetMac ()->
+        GetObject<RegularWifiMac> ()->GetDcaTxop ();
+      Ptr<DcfManager> dcfManager = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
+        GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+
       if(tracing == true)
         {
           n << i;
-          dca->TraceConnect ("TxFailures",n.str(), MakeBoundCallback(&TraceFailures, tx_stream, &results));
-          dca->TraceConnect ("TxSuccesses", n.str(), MakeBoundCallback(&TraceSuccesses, tx_stream, &results));
-          dca->TraceConnect ("TxAttempts", n.str(), MakeBoundCallback(&TraceTxAttempts, tx_stream, &results));
-          dca->TraceConnect ("BackoffCounter", n.str(), MakeBoundCallback(&TraceAssignedBackoff, backoff_stream));
-          dca->TraceConnect ("Bitmap", n.str(), MakeBoundCallback(&TraceEcaBitmap, bitmap_stream));
-          dcfManager->TraceConnect ("LastTxDuration", n.str(), MakeBoundCallback(&TraceLastTxDuration, tx_stream));
+          dca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results));
+          dca->TraceConnect ("TxSuccesses", n.str (), MakeBoundCallback (&TraceSuccesses, tx_stream, &results));
+          dca->TraceConnect ("TxAttempts", n.str (), MakeBoundCallback (&TraceTxAttempts, tx_stream, &results));
+          dca->TraceConnect ("BackoffCounter", n.str (), MakeBoundCallback (&TraceAssignedBackoff, backoff_stream));
+          dca->TraceConnect ("Bitmap", n.str (), MakeBoundCallback (&TraceEcaBitmap, bitmap_stream));
+          dcfManager->TraceConnect ("LastTxDuration", n.str (), MakeBoundCallback (&TraceLastTxDuration, tx_stream));
         }
     }
 
   if (verbose == true)
     {
-    // LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
-    // LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
-      LogComponentEnable("DcfManager", LOG_LEVEL_DEBUG);
-      LogComponentEnable("DcaTxop", LOG_LEVEL_DEBUG);
-    // LogComponentEnable("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("UdpClient", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("UdpServer", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("DcfManager", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("DcaTxop", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
     }
 
+  Simulator::Stop (Seconds (startClientApp + totalSimtime));
 
-  //Configuring the MAC protocol
-  // if(ECA){
-  //   for(uint32_t i = 0; i < allNodes.GetN()-1; i++){
-  //     allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->GetMac()->
-  //       GetObject<RegularWifiMac>()->ConfigureCw();
-  //   }
-  // }
+  //Finilise setup
+  Simulator::Schedule(Seconds(startClientApp-0.5), finaliseSetup, config);
 
-
-  Simulator::Stop (Seconds (totalSimtime+1));
   //Last call to the printResults function
-  Simulator::Schedule(Seconds(totalSimtime+0.999999), printResults, config, results_stream, startClientApp, &results);
-  Simulator::Schedule(Seconds(totalSimtime+0.999999), processFinal, resultsName);
-  Simulator::Schedule(Seconds(startClientApp-1.000001), finaliseSetup, config);
-
+  Simulator::Schedule(Seconds(startClientApp  + totalSimtime - 0.000009), printResults, 
+    config, results_stream, startClientApp, &results);
+  Simulator::Schedule(Seconds(startClientApp  + totalSimtime - 0.000009), processFinal, resultsName);
   Simulator::Run ();
   Simulator::Destroy ();
   return 0;

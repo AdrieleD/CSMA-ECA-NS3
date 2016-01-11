@@ -176,7 +176,8 @@ DcaTxop::DcaTxop ()
     m_failures (0),
     m_successes (0),
     m_txAttempts (0),
-    m_boCounter (0xFFFFFFFF)
+    m_boCounter (0xFFFFFFFF),
+    m_ecaBitmap (false)
 {
   NS_LOG_FUNCTION (this);
   m_transmissionListener = new DcaTxop::TransmissionListener (this);
@@ -360,8 +361,8 @@ DcaTxop::DoInitialize ()
 {
   NS_LOG_FUNCTION (this);
   m_dcf->ResetCw ();
-  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  m_dcf->StartBackoffNow (tracedRandomFactory ());
+  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  // m_dcf->StartBackoffNow (tracedRandomFactory ());
   ns3::Dcf::DoInitialize ();
 }
 
@@ -553,8 +554,8 @@ DcaTxop::NotifyCollision (void)
 {
   NS_LOG_FUNCTION (this);
   NS_LOG_DEBUG ("collision");
-  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  m_dcf->StartBackoffNow (tracedRandomFactory ());
+  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  // m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -612,8 +613,8 @@ DcaTxop::MissedCts (void)
     {
       m_dcf->UpdateFailedCw ();
     }
-  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  m_dcf->StartBackoffNow (tracedRandomFactory ());
+  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  // m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -627,7 +628,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
     {
       NS_LOG_DEBUG ("got ack. tx done.");
       m_successes++;
-      AddConsecutiveSuccess();
+      // AddConsecutiveSuccess();
       if (!m_txOkCallback.IsNull ())
         {
           m_txOkCallback (m_currentHdr);
@@ -669,6 +670,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
                               NS_LOG_DEBUG ("We cannot reduce the schedule");
                             }
                           m_srBeingFilled = false;
+                          m_srIterations = 0;
                         }
                     }
                 } 
@@ -681,8 +683,8 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
       else
         {
           m_dcf->ResetCw();
-          // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-          m_dcf->StartBackoffNow (tracedRandomFactory ());
+          m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+          // m_dcf->StartBackoffNow (tracedRandomFactory ());
         }
 
       RestartAccessIfNeeded ();
@@ -718,8 +720,8 @@ DcaTxop::MissedAck (void)
     }
   m_failures++;
   ResetConsecutiveSuccess();
-  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  m_dcf->StartBackoffNow (tracedRandomFactory ());
+  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  // m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -793,8 +795,8 @@ DcaTxop::EndTxNoAck (void)
   else
     {
       m_dcf->ResetCw ();
-      // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-      m_dcf->StartBackoffNow (tracedRandomFactory ());
+      m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+      // m_dcf->StartBackoffNow (tracedRandomFactory ());
     }
   StartAccessIfNeeded ();
 }
@@ -848,6 +850,8 @@ DcaTxop::ResetConsecutiveSuccess (void)
 void
 DcaTxop::ResetStats (void)
 {
+  NS_LOG_DEBUG ("Resetting stats");
+
   m_failures = 0;
   m_successes = 0;
   m_txAttempts = 0;
@@ -858,7 +862,8 @@ DcaTxop::ResetStats (void)
   m_scheduleResetThreshold = 0;
   m_scheduleResetMode = false;
   m_scheduleResetConservative = false;
-  m_dcf->StartBackoffNow (tracedRandomFactory ());
+  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  // m_dcf->StartBackoffNow (tracedRandomFactory ());
 }
 
 uint32_t
@@ -890,8 +895,11 @@ DcaTxop::CanWeReduceTheSchedule (void)
   NS_LOG_DEBUG ("Got the bitmap from DcfManager " << bitmap->size ());
   
   /* Updating the traced value */
-  m_ecaBitmap = bitmap;
-  m_ecaBitmap = (std::vector<bool>*) 0;
+  if(m_manager->GetScheduleReset ()) 
+    {
+      m_ecaBitmap = (std::vector<bool>*) 0;
+      m_ecaBitmap = bitmap;
+    }
 
   /* Checking the possibility of a schedule reduction */
   uint32_t currentSize = bitmap->size ();

@@ -666,9 +666,12 @@ DcfManager::UpdateBackoff (void)
           Time backoffUpdateBound = backoffStart + MicroSeconds (n * m_slotTimeUs);
           state->UpdateBackoffSlotsNow (n, backoffUpdateBound);
 
-          if(m_scheduleReset && i == m_states.begin ())
-            {
-              UpdateEcaBitmap ();
+          if (i == m_states.begin ())
+            {  
+              if(GetEnvironmentForECA () == true && GetScheduleReset ())
+              {
+                UpdateEcaBitmap ();
+              }
             }
         }
     }
@@ -952,18 +955,19 @@ void
 DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap)
 {
   m_isECA = true;
-  if(hysteresis)
+  if(hysteresis == true)
     {
     NS_LOG_DEBUG ("Setting hysteresis");
     m_hysteresis = true;
   }
-  if(bitmap)
+  if(bitmap == true)
   {
     NS_LOG_DEBUG ("Setting Schedule Reset");
     m_scheduleReset = true;
     DcfState *state = *(m_states.begin ());
     uint32_t size = state->GetCw () / 2 + 1;
-    StartNewEcaBitmap (size);
+    NS_LOG_DEBUG (""<< size);
+    // StartNewEcaBitmap (size);
   }
 }
 

@@ -1,3 +1,7 @@
 #!/bin/bash
+MINE=$(pwd)
+cd $MINE
+export 'NS_LOG='
 #export 'NS_LOG=DcfManager=level_debug|prefix_time|prefix_node|prefix_func:DcaTxop=level_debug|prefix_time|prefix_node|prefix_func'
-export 'NS_LOG=DcfManager=level_debug|prefix_all:DcaTxop=level_debug|prefix_all'
+#export 'NS_LOG=DcfManager=level_func|prefix_all:DcaTxop=level_func|prefix_all'
+export NS_LOG='DcfManager=level_debug|prefix_all:DcaTxop=level_debug|prefix_all:UdpClient=level_debug|prefix_all:UdpServer=level_debug|prefix_all'
