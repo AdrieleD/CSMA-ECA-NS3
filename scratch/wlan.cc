@@ -53,6 +53,7 @@ struct sim_config{
   bool fairShare;
   bool bitmap;
   bool srConservative;
+  uint32_t srActivationThreshold;
   bool srResetMode;
 };
 struct sim_config config;
@@ -212,6 +213,7 @@ finaliseSetup(struct sim_config &config)
       /* Setting all the nasty stuff for Schedule Reset */      
       if(config.bitmap)
         {
+          dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
           if (config.srConservative)
             dca->SetScheduleConservative ();
           if (config.srResetMode)
@@ -254,6 +256,7 @@ main (int argc, char *argv[])
   bool fairShare = false;
   bool bitmap = false;
   bool srConservative = false;
+  uint32_t srActivationThreshold = 1;
   bool srResetMode = false;
 
 
@@ -270,7 +273,8 @@ main (int argc, char *argv[])
   cmd.AddValue ("hysteresis", "Do we keep the CurCW after a sxTx?", hysteresis);
   cmd.AddValue ("fairShare", "Do we aggregate according to hysteresis?", fairShare);
   cmd.AddValue ("bitmap", "Are we using Schedule Reset?", bitmap);
-  cmd.AddValue ("srConservative", "Adjusts the Schedule Reset threshold", srConservative);
+  cmd.AddValue ("srConservative", "Adjusts the number of iterations for building Schedule Reset bitmap", srConservative);
+  cmd.AddValue ("srActivationThreshold", "After this many consecutive successfull transmissions, SR is activated", srActivationThreshold);
   cmd.AddValue ("srResetMode", "By default, schedules will be halved. Set true for Schedule Reset", srResetMode);
 
   cmd.Parse (argc,argv);
@@ -286,6 +290,7 @@ main (int argc, char *argv[])
   config.fairShare = fairShare;
   config.bitmap = bitmap;
   config.srConservative = srConservative;
+  config.srActivationThreshold = srActivationThreshold;
   config.srResetMode = srResetMode;
 
   results.sxTx = 0;
@@ -460,7 +465,7 @@ main (int argc, char *argv[])
     {
     // LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
     // LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
-    // LogComponentEnable("DcfManager", LOG_LEVEL_DEBUG);
+      LogComponentEnable("DcfManager", LOG_LEVEL_DEBUG);
       LogComponentEnable("DcaTxop", LOG_LEVEL_DEBUG);
     // LogComponentEnable("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
     }

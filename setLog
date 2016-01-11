@@ -1,0 +1,3 @@
+#!/bin/bash
+#export 'NS_LOG=DcfManager=level_debug|prefix_time|prefix_node|prefix_func:DcaTxop=level_debug|prefix_time|prefix_node|prefix_func'
+export 'NS_LOG=DcfManager=level_debug|prefix_all:DcaTxop=level_debug|prefix_all'

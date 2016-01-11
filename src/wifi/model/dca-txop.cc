@@ -171,6 +171,8 @@ DcaTxop::GetTypeId (void)
 DcaTxop::DcaTxop ()
   : m_manager (0),
     m_currentPacket (0),
+    m_srBeingFilled (false),
+    m_srIterations (0),
     m_failures (0),
     m_successes (0),
     m_txAttempts (0),
@@ -530,7 +532,7 @@ DcaTxop::NotifyAccessGranted (void)
           else
             {
               params.DisableRts ();
-              NS_LOG_DEBUG ("tx unicast");
+              NS_LOG_DEBUG ("tx unicast: " << m_currentPacket->GetUid ());
             }
           params.DisableNextData ();
           Low ()->StartTransmission (m_currentPacket, &m_currentHdr,
@@ -636,26 +638,46 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
        */
       m_currentPacket = 0;
 
+      /* Begin of CSMA/ECA */
       if (m_manager->GetEnvironmentForECA ())
         {
           NS_LOG_DEBUG ("***ECA=true");
           if (!(m_manager->GetHysteresisForECA ()))
             m_dcf->ResetCw ();
 
-          if(m_manager->GetScheduleReset ())
+          if (m_manager->GetScheduleReset ())
             {
-              if( (GetConsecutiveSuccesses () >= GetScheduleResetThreshold ()) 
-                  && CanWeReduceTheSchedule ())
+              if (GetConsecutiveSuccesses () >= GetScheduleResetActivationThreshold ())
                 {
-                  NS_LOG_DEBUG ("We can reduce the schedule");
-                  uint32_t size = m_dcf->GetCw () / 2;
-                  m_manager->StartNewEcaBitmap (size);
-
-                }
+                  if (!m_srBeingFilled)
+                    {
+                      uint32_t size = m_dcf->GetCw () / 2 + 1;
+                      m_manager->StartNewEcaBitmap (size);
+                      m_srBeingFilled = true;
+                      m_srIterations = GetConsecutiveSuccesses ();
+                    }
+                  else
+                    {
+                      if(GetConsecutiveSuccesses () - m_srIterations == GetScheduleResetThreshold ())
+                        {
+                          if(CanWeReduceTheSchedule ())
+                            {
+                              NS_LOG_DEBUG ("We can reduce the schedule");
+                            }
+                          else
+                            {
+                              NS_LOG_DEBUG ("We cannot reduce the schedule");
+                            }
+                          m_srBeingFilled = false;
+                        }
+                    }
+                } 
             }
 
           m_dcf->StartBackoffNow (deterministicBackoff(m_dcf->GetCw ()));
+          NS_LOG_DEBUG ("Done processing success");
         }
+      /* End of CSMA/ECA */
       else
         {
           m_dcf->ResetCw();
@@ -857,6 +879,7 @@ DcaTxop::tracedRandomFactory (void)
 {
   m_boCounter = 0xFFFFFFFF;
   m_boCounter = m_rng->GetNext (0, m_dcf->GetCw ());
+  NS_LOG_DEBUG ("Setting random backoff using CSMA/ECA: " << m_boCounter);
   return m_boCounter;
 }
 
@@ -875,12 +898,16 @@ DcaTxop::CanWeReduceTheSchedule (void)
   if (!GetScheduleResetMode ())
     {
       /* That is, a Schedule Halving */
+      /* Debugging the bitmap */
       NS_LOG_DEBUG ("Checking for Schedule Halving");
-      for (std::vector<bool>::iterator i = bitmap->begin (); i != bitmap->end (); i++)
+      uint32_t slot = 0; 
+      for (std::vector<bool>::iterator i = bitmap->begin (); i != bitmap->end (); i++, slot++)
         {
-          NS_LOG_DEBUG ("Bitmap position value: " << *i);
+          NS_LOG_DEBUG ("Bitmap position " << slot << " value: " << *i);
         }
-      if (bitmap->at (currentSize/2)) 
+      /* End of debug */
+
+      if (!bitmap->at (currentSize/2 - 1))
         {
           NS_LOG_DEBUG ("A schedule halving is possible. Size: " << currentSize );
           return true;
@@ -929,6 +956,18 @@ void
 DcaTxop::SetScheduleConservative (void)
 {
   m_scheduleResetConservative = true;
+}
+
+void 
+DcaTxop::SetScheduleResetActivationThreshold (uint32_t thresh)
+{
+  m_srActivationThreshold = thresh;
+}
+
+uint32_t
+DcaTxop::GetScheduleResetActivationThreshold (void)
+{
+  return m_srActivationThreshold;
 }
 
 

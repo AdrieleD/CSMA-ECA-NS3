@@ -506,7 +506,7 @@ DcfManager::RequestAccess (DcfState *state)
     {
       return;
     }
-  m_isNextSlotBusy = false;
+  m_isNextSlotBusy = true;
   UpdateBackoff ();
   NS_ASSERT (!state->IsAccessRequested ());
   state->NotifyAccessRequested ();
@@ -662,7 +662,7 @@ DcfManager::UpdateBackoff (void)
           uint32_t nus = (Simulator::Now () - backoffStart).GetMicroSeconds ();
           uint32_t nIntSlots = nus / m_slotTimeUs;
           uint32_t n = std::min (nIntSlots, state->GetBackoffSlots ());
-          MY_DEBUG ("dcf " << k << " dec backoff slots=" << n);
+          NS_LOG_DEBUG ("dcf " << k << " dec backoff slots=" << n);
           Time backoffUpdateBound = backoffStart + MicroSeconds (n * m_slotTimeUs);
           state->UpdateBackoffSlotsNow (n, backoffUpdateBound);
 
@@ -718,7 +718,7 @@ void
 DcfManager::NotifyRxStartNow (Time duration)
 {
   NS_LOG_FUNCTION (this << duration);
-  MY_DEBUG ("rx start for=" << duration);
+  NS_LOG_DEBUG ("rx start for=" << duration);
   m_isNextSlotBusy = true;
   UpdateBackoff ();
   m_lastRxStart = Simulator::Now ();
@@ -730,7 +730,7 @@ void
 DcfManager::NotifyRxEndOkNow (void)
 {
   NS_LOG_FUNCTION (this);
-  MY_DEBUG ("rx end ok");
+  NS_LOG_DEBUG ("rx end ok");
   m_lastRxEnd = Simulator::Now ();
   m_lastRxReceivedOk = true;
   m_rxing = false;
@@ -740,7 +740,7 @@ void
 DcfManager::NotifyRxEndErrorNow (void)
 {
   NS_LOG_FUNCTION (this);
-  MY_DEBUG ("rx end error");
+  NS_LOG_DEBUG ("rx end error");
   m_lastRxEnd = Simulator::Now ();
   m_lastRxReceivedOk = false;
   m_rxing = false;
@@ -991,6 +991,7 @@ DcfManager::StartNewEcaBitmap (uint32_t size)
 {
   if(m_ecaBitmap.size () > 0)
     m_ecaBitmap.clear ();
+
   NS_LOG_DEBUG ("Creating new bitmap of size :" << size);
   m_ecaBitmap.assign(size, false);
 }
@@ -1008,7 +1009,10 @@ DcfManager::UpdateEcaBitmap ()
     DcfState *state = *(m_states. begin());
     uint32_t position = m_ecaBitmap.size () - state->GetBackoffSlots () - 1;
     if (position < m_ecaBitmap.size ())
-      m_ecaBitmap.at(position) = true;
+      {
+        m_ecaBitmap.at(position) = true;
+        MY_DEBUG ("marking position: " << position << " as busy");
+      }
   }
   m_isNextSlotBusy = false;
 }

@@ -176,6 +176,8 @@ public:
   void SetScheduleResetThreshold (void);
   void SetScheduleConservative (void);
   bool GetScheduleResetMode (void);
+  void SetScheduleResetActivationThreshold (uint32_t thresh);
+  uint32_t GetScheduleResetActivationThreshold (void);
   void SetScheduleResetMode (void);
 
   //For tracing the bitmap
@@ -377,6 +379,9 @@ private:
   uint32_t m_scheduleResetThreshold;
   bool m_scheduleResetConservative;
   bool m_scheduleResetMode;
+  uint32_t m_srActivationThreshold;
+  bool m_srBeingFilled;
+  uint32_t m_srIterations;
 
   TracedValue<uint64_t> m_failures;
   TracedValue<uint64_t> m_successes;
