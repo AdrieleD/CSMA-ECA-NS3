@@ -150,20 +150,29 @@ DcaTxop::GetTypeId (void)
                    MakePointerAccessor (&DcaTxop::GetQueue),
                    MakePointerChecker<WifiMacQueue> ())
     .AddTraceSource ("TxFailures", "Incremented for each missed ACK",
-                    MakeTraceSourceAccessor(&DcaTxop::m_failures),
+                    MakeTraceSourceAccessor (&DcaTxop::m_failures),
                     "ns3::Traced::Value::Uint64Callback")
     .AddTraceSource ("TxSuccesses", "Incremented for each ACK",
-                    MakeTraceSourceAccessor(&DcaTxop::m_successes),
+                    MakeTraceSourceAccessor (&DcaTxop::m_successes),
                     "ns3::Traced::Value::Uint64Callback")
     .AddTraceSource ("TxAttempts", "Incremented for every access to DCF",
-                    MakeTraceSourceAccessor(&DcaTxop::m_txAttempts),
+                    MakeTraceSourceAccessor (&DcaTxop::m_txAttempts),
                     "ns3::Traced::Value:Uint64Callback")
     .AddTraceSource ("BackoffCounter", "Changes in the assigned backoff",
-                    MakeTraceSourceAccessor(&DcaTxop::m_boCounter),
+                    MakeTraceSourceAccessor (&DcaTxop::m_boCounter),
                     "ns3::Traced::Value:Uint32Callback")
     .AddTraceSource ("Bitmap", "The bitmap state after every cycle",
-                    MakeTraceSourceAccessor(&DcaTxop::m_ecaBitmap),
+                    MakeTraceSourceAccessor (&DcaTxop::m_ecaBitmap),
                     "ns3::Traced::Value::TracedEcaBitmap")
+    .AddTraceSource ("SrReductionAttempts", "Number of reduction attempts",
+                    MakeTraceSourceAccessor (&DcaTxop::m_scheduleReductionAttempts),
+                    "ns3::Traced::Value::Uint32Callback")
+    .AddTraceSource ("SrReductions", "Number of SR reductions",
+                    MakeTraceSourceAccessor (&DcaTxop::m_scheduleReductions),
+                    "ns3::Traced::Value:Uint32Callback")
+    .AddTraceSource ("SrReductionFailed", "Times does not comply with SR criteria",
+                    MakeTraceSourceAccessor (&DcaTxop::m_scheduleReductionFailed),
+                    "ns3::Traced::Value:Uint32Callback")
   ;
   return tid;
 }
@@ -173,11 +182,15 @@ DcaTxop::DcaTxop ()
     m_currentPacket (0),
     m_srBeingFilled (false),
     m_srIterations (0),
+    m_srReductionFactor (2),
     m_failures (0),
     m_successes (0),
     m_txAttempts (0),
     m_boCounter (0xFFFFFFFF),
-    m_ecaBitmap (false)
+    m_ecaBitmap (false),
+    m_scheduleReductions (0),
+    m_scheduleReductionAttempts (0),
+    m_scheduleReductionFailed (0)
 {
   NS_LOG_FUNCTION (this);
   m_transmissionListener = new DcaTxop::TransmissionListener (this);
@@ -361,8 +374,8 @@ DcaTxop::DoInitialize ()
 {
   NS_LOG_FUNCTION (this);
   m_dcf->ResetCw ();
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  // m_dcf->StartBackoffNow (tracedRandomFactory ());
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
   ns3::Dcf::DoInitialize ();
 }
 
@@ -554,8 +567,8 @@ DcaTxop::NotifyCollision (void)
 {
   NS_LOG_FUNCTION (this);
   NS_LOG_DEBUG ("collision");
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  // m_dcf->StartBackoffNow (tracedRandomFactory ());
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -613,8 +626,8 @@ DcaTxop::MissedCts (void)
     {
       m_dcf->UpdateFailedCw ();
     }
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  // m_dcf->StartBackoffNow (tracedRandomFactory ());
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -648,7 +661,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
 
           if (m_manager->GetScheduleReset ())
             {
-              NS_LOG_DEBUG ("Checking the bitmap for Schedule Reset. Sx #" << GetConsecutiveSuccesses ()
+              NS_LOG_DEBUG ("Schedule Reset. Sx #" << GetConsecutiveSuccesses ()
                 << " thresh: " << GetScheduleResetActivationThreshold ());
               if (GetConsecutiveSuccesses () >= GetScheduleResetActivationThreshold ())
                 {
@@ -662,18 +675,21 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
                     }
                   else
                     {
-                      if(GetConsecutiveSuccesses () - m_srIterations == GetScheduleResetThreshold ())
+                      NS_LOG_DEBUG ("Checking bitmap for Schedule Reset");
+                      if( (GetConsecutiveSuccesses () - m_srIterations) >= GetScheduleResetThreshold ())
                         {
                           if(CanWeReduceTheSchedule ())
                             {
                               NS_LOG_DEBUG ("We can reduce the schedule");
+                              ModifyCwAccordingToScheduleReduction ();
                             }
                           else
                             {
                               NS_LOG_DEBUG ("We cannot reduce the schedule");
                             }
                           m_srBeingFilled = false;
-                          m_srIterations = 0;
+                          ResetConsecutiveSuccess ();
+                          m_srIterations = GetConsecutiveSuccesses ();
                         }
                     }
                 } 
@@ -686,8 +702,8 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
       else
         {
           m_dcf->ResetCw();
-          m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-          // m_dcf->StartBackoffNow (tracedRandomFactory ());
+          // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+          m_dcf->StartBackoffNow (tracedRandomFactory ());
         }
 
       RestartAccessIfNeeded ();
@@ -723,8 +739,10 @@ DcaTxop::MissedAck (void)
     }
   m_failures++;
   ResetConsecutiveSuccess();
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  // m_dcf->StartBackoffNow (tracedRandomFactory ());
+  if (m_manager->GetScheduleReset ())
+    ResetSrMetrics ();
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -798,8 +816,8 @@ DcaTxop::EndTxNoAck (void)
   else
     {
       m_dcf->ResetCw ();
-      m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-      // m_dcf->StartBackoffNow (tracedRandomFactory ());
+      // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+      m_dcf->StartBackoffNow (tracedRandomFactory ());
     }
   StartAccessIfNeeded ();
 }
@@ -865,12 +883,12 @@ DcaTxop::ResetStats (void)
   m_scheduleResetThreshold = 0;
   m_scheduleResetMode = false;
   m_scheduleResetConservative = false;
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  // m_dcf->StartBackoffNow (tracedRandomFactory ());
+  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  m_dcf->StartBackoffNow (tracedRandomFactory ());
 }
 
 uint32_t
-DcaTxop::deterministicBackoff(uint32_t cw)
+DcaTxop::deterministicBackoff (uint32_t cw)
 {
   uint32_t tmp = ceil(cw / 2);
   if(!m_settingThreshold)
@@ -887,13 +905,26 @@ DcaTxop::tracedRandomFactory (void)
 {
   m_boCounter = 0xFFFFFFFF;
   m_boCounter = m_rng->GetNext (0, m_dcf->GetCw ());
-  NS_LOG_DEBUG ("Setting random backoff using CSMA/ECA: " << m_boCounter);
+  // NS_LOG_DEBUG ("Setting random backoff using CSMA/ECA: " << m_boCounter);
   return m_boCounter;
+}
+
+bool
+DcaTxop::GetScheduleResetMode (void)
+{
+  return m_scheduleResetMode;
+}
+
+void
+DcaTxop::SetScheduleResetMode ()
+{
+  m_scheduleResetMode = true;
 }
 
 bool
 DcaTxop::CanWeReduceTheSchedule (void)
 {
+  bool canI = false;
   std::vector<bool> *bitmap = m_manager->GetBitmap ();
   NS_LOG_DEBUG ("Got the bitmap from DcfManager " << bitmap->size ());
   
@@ -906,7 +937,7 @@ DcaTxop::CanWeReduceTheSchedule (void)
 
   /* Checking the possibility of a schedule reduction */
   uint32_t currentSize = bitmap->size ();
-  if (!GetScheduleResetMode ())
+  if (GetScheduleResetMode () == false)
     {
       /* That is, a Schedule Halving */
       /* Debugging the bitmap */
@@ -921,7 +952,7 @@ DcaTxop::CanWeReduceTheSchedule (void)
       if (!bitmap->at (currentSize/2 - 1))
         {
           NS_LOG_DEBUG ("A schedule halving is possible. Size: " << currentSize );
-          return true;
+          canI = true;
         }
     }
   else
@@ -929,19 +960,19 @@ DcaTxop::CanWeReduceTheSchedule (void)
       NS_LOG_DEBUG ("Checking for Schedule Reset");
     }
 
-  return false;
-}
+    /* Updating traced values */
+    m_scheduleReductionAttempts++;
+    if (canI == true)
+      {
+        m_scheduleReductions++;
+      }
+    else
+      {
+        m_scheduleReductionFailed++;
+      }
+    /* Done updating */
 
-bool
-DcaTxop::GetScheduleResetMode (void)
-{
-  return m_scheduleResetMode;
-}
-
-void
-DcaTxop::SetScheduleResetMode ()
-{
-  m_scheduleResetMode = true;
+    return canI;
 }
 
 uint32_t
@@ -979,6 +1010,31 @@ uint32_t
 DcaTxop::GetScheduleResetActivationThreshold (void)
 {
   return m_srActivationThreshold;
+}
+
+void
+DcaTxop::ModifyCwAccordingToScheduleReduction (void)
+{
+  uint32_t current =  m_dcf->GetCw ();
+  uint32_t factor = GetScheduleReductionFactor ();
+  uint32_t reduced = current / factor;
+  if(reduced > m_dcf->GetCwMin ())
+    {
+      m_dcf->SetCw (reduced);
+      NS_LOG_DEBUG ("Schedule Reset modified Cw from: " << current << " to: " << reduced);
+    }
+}
+
+uint32_t
+DcaTxop::GetScheduleReductionFactor (void)
+{
+  return m_srReductionFactor;
+}
+
+void
+DcaTxop::ResetSrMetrics (void)
+{
+  m_srBeingFilled = false;
 }
 
 

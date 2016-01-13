@@ -5,7 +5,7 @@ my $nMin = $nMax;
 my $rep = 1;
 my $verbose = false;
 my $tracing = false;
-my $totalSimTime = 2;
+my $totalSimTime = 5;
 my $seed = -1; #Keep -1 to leave unchanged
 my $ECA = false;
 my $hyst = false;
@@ -24,6 +24,8 @@ foreach (@ARGV){
 		if $_ eq '--verbose';
 	$srConservative = true
 		if $_ eq '--srConservative';
+	$tracing = true
+		if $_ eq '--tracing';
 }
 
 if( $nMax > $nMin ){

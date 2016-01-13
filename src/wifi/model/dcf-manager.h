@@ -72,6 +72,12 @@ public:
    */
   void SetCwMax (uint32_t maxCw);
   /**
+   * Set the current congestion window size.
+   *
+   * \param cw the current congestion window size
+   */
+  void SetCw (uint32_t cw);
+  /**
    * Return the number of slots that make up an AIFS.
    *
    * \return the number of slots that make up an AIFS
@@ -424,6 +430,7 @@ public:
   void UpdateEcaBitmap (void);
   bool GetScheduleReset (void);
   bool isNextSlotBusy (void);
+  uint32_t GetCurrentBitmapPosition (void);
 
 
 private:

@@ -73,6 +73,12 @@ DcfState::SetCwMax (uint32_t maxCw)
   ResetCw ();
 }
 
+void
+DcfState::SetCw (uint32_t cw)
+{
+  m_cw = cw;
+}
+
 uint32_t
 DcfState::GetAifsn (void) const
 {
@@ -506,6 +512,10 @@ DcfManager::RequestAccess (DcfState *state)
     {
       return;
     }
+  if(GetScheduleReset ())
+    {
+      NS_LOG_DEBUG ("Busy next slot #" << GetCurrentBitmapPosition ());
+    }
   m_isNextSlotBusy = true;
   UpdateBackoff ();
   NS_ASSERT (!state->IsAccessRequested ());
@@ -722,6 +732,10 @@ DcfManager::NotifyRxStartNow (Time duration)
 {
   NS_LOG_FUNCTION (this << duration);
   NS_LOG_DEBUG ("rx start for=" << duration);
+  if(GetScheduleReset ())
+    {
+      NS_LOG_DEBUG ("Busy next slot #" << GetCurrentBitmapPosition ());
+    }
   m_isNextSlotBusy = true;
   UpdateBackoff ();
   m_lastRxStart = Simulator::Now ();
@@ -775,6 +789,10 @@ DcfManager::NotifyMaybeCcaBusyStartNow (Time duration)
 {
   NS_LOG_FUNCTION (this << duration);
   MY_DEBUG ("busy start for " << duration);
+  if(GetScheduleReset ())
+    {
+      NS_LOG_DEBUG ("Busy next slot #" << GetCurrentBitmapPosition ());
+    }
   m_isNextSlotBusy = true;
   UpdateBackoff ();
   m_lastBusyStart = Simulator::Now ();
@@ -955,19 +973,19 @@ void
 DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap)
 {
   m_isECA = true;
-  if(hysteresis == true)
+  if (hysteresis == true)
     {
-    NS_LOG_DEBUG ("Setting hysteresis");
-    m_hysteresis = true;
-  }
-  if(bitmap == true)
-  {
+      NS_LOG_DEBUG ("Setting hysteresis");
+      m_hysteresis = true;
+    }
+  if (bitmap == true)
+    {
     m_scheduleReset = true;
     NS_LOG_DEBUG ("Setting Schedule Reset: " << m_scheduleReset);
     DcfState *state = *(m_states.begin ());
     uint32_t size = state->GetCw () / 2 + 1;
     StartNewEcaBitmap (size);
-  }
+    }
 }
 
 bool
@@ -1008,7 +1026,7 @@ DcfManager::GetBitmap (void)
 void 
 DcfManager::UpdateEcaBitmap ()
 {
-  if(isNextSlotBusy ()){
+  if (isNextSlotBusy ()){
     DcfState *state = *(m_states. begin());
     uint32_t position = m_ecaBitmap.size () - state->GetBackoffSlots () - 1;
     if (position < m_ecaBitmap.size ())
@@ -1018,6 +1036,18 @@ DcfManager::UpdateEcaBitmap ()
       }
   }
   m_isNextSlotBusy = false;
+}
+
+uint32_t
+DcfManager::GetCurrentBitmapPosition ()
+{
+  uint32_t position = 0;
+  if (GetScheduleReset ())
+  {
+    DcfState *state = *(m_states.begin());
+    position = m_ecaBitmap.size () - state->GetBackoffSlots () - 1;
+  }
+  return position;
 }
 
 bool

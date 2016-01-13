@@ -179,6 +179,9 @@ public:
   void SetScheduleResetActivationThreshold (uint32_t thresh);
   uint32_t GetScheduleResetActivationThreshold (void);
   void SetScheduleResetMode (void);
+  void ModifyCwAccordingToScheduleReduction (void);
+  uint32_t GetScheduleReductionFactor (void);
+  void ResetSrMetrics (void);
 
   //For tracing the bitmap
   typedef void (* TracedEcaBitmap) (std::vector<bool> *bmold, std::vector<bool> *bmnew); 
@@ -382,12 +385,17 @@ private:
   uint32_t m_srActivationThreshold;
   bool m_srBeingFilled;
   uint32_t m_srIterations;
-
+  uint32_t m_srReductionFactor;
+ 
   TracedValue<uint64_t> m_failures;
   TracedValue<uint64_t> m_successes;
   TracedValue<uint64_t> m_txAttempts;
   TracedValue<uint32_t> m_boCounter;
   TracedValue<std::vector<bool> *> m_ecaBitmap;
+  TracedValue<uint32_t> m_scheduleReductions;
+  TracedValue<uint32_t> m_scheduleReductionAttempts;
+  TracedValue<uint32_t> m_scheduleReductionFailed;
+
 
 };
 

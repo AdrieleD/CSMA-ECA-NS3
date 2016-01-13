@@ -62,10 +62,14 @@ struct sim_config{
 struct sim_config config;
 
 struct sim_results{
+  uint32_t stas;
   uint64_t sxTx;
   uint64_t failTx;
   uint64_t txAttempts;
   uint64_t lastCollision;
+  uint32_t srAttempts;
+  uint32_t srReductions;
+  uint32_t srFails;
 };
 struct sim_results results;
 
@@ -84,25 +88,33 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
   double attempts = results->txAttempts;
   double sx = results->sxTx;
 
-  for(uint32_t i = 0; i < config.nWifi-1; i++){
+  for (uint32_t i = 0; i < config.nWifi-1; i++)
+    {
     uint64_t rx_packets;
-    rx_packets = DynamicCast<UdpServer>(config.servers.Get(i))->GetReceived();
+    rx_packets = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
     total_rx_packets += rx_packets;
     rx_bits += (rx_packets * config.payload * 8.0);
     // std::cout << i << " " << rx_packets << " " << config.servers.GetN() << std::endl;
-  }
+    }
 
-  std::cout << "***RESULTS***" << std::endl;
+  std::cout << "\n\n***RESULTS***" << std::endl;
+  std::cout << "-Number of STAs: " << results->stas << std::endl;
   std::cout << "-Total Simulation time (s): " << simulationDuration.GetSeconds () << std::endl;
   std::cout << "-Total Throughput: " << rx_bits / simulationDuration.GetSeconds() << std::endl;
   std::cout << "-Total received datagrams: " << total_rx_packets << std::endl;
   double colFrac = 0;
   if (col > 0) colFrac = col/attempts;
   std::cout << "-Fraction of tx resulting in collisions: " << colFrac << std::endl;
-  std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs." << std::endl;
+  std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs.\n" << std::endl;
   uint64_t index = attempts - (col + sx);
-  if(index != 0)
-    std::cout << "\tSomething is wrong with couting the results of tx attempts (" << index << ")" << std::endl;
+  if (index != 0)
+    std::cout << "\tSomething is wrong with couting the results of tx attempts (" << index << ")\n" << std::endl;
+
+  if (config.bitmap)
+    {
+      if (results->srReductions + results->srFails == results->srAttempts)
+        std::cout << "-Schedule Reset reductions: " << results->srReductions << std::endl;
+    }
 
   *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6)
     << rx_bits / simulationDuration.GetSeconds() << " " << col/attempts << std::endl;
@@ -176,6 +188,33 @@ TraceEcaBitmap(Ptr<OutputStreamWrapper> stream, std::string context, std::vector
     }
 }
 
+void
+TraceSrAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+  results->srAttempts++;
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << TX << " " << newValue << std::endl;
+}
+
+void
+TraceSrReductions(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+  results->srReductions++;
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << SXTX << " " << newValue << std::endl;
+}
+
+void
+TraceSrFails(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+  results->srFails++;
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
+}
+
 /**
  * This is called 100ns before the actual simulation starts and it is used to
  * finalize the node setup and to reset the internal state of all the nodes.
@@ -235,7 +274,8 @@ finaliseSetup(struct sim_config &config)
     phy->SetFrameMinBer(config.frameMinBer);*/
   }
 
-  std::cout << "###Simulation parameters" << std::endl;
+  std::cout << "\n###Simulation parameters" << std::endl;
+  std::cout << "-Number of STAs: " << config.nWifi-1 << std::endl;
   std::cout << "-Simulation time: " << config.totalSimtime << std::endl;
   std::cout << "-Tracing: " << config.tracing << std::endl;
   std::cout << "-Verbose: " << config.verbose << std::endl;
@@ -253,7 +293,7 @@ main (int argc, char *argv[])
 {
   bool verbose = false;
   uint32_t nWifi = 2;
-  bool tracing = true;
+  bool tracing = false;
   std::string dataRate("ErpOfdmRate54Mbps");
   std::string controlRate("ErpOfdmRate54Mbps");
   uint16_t destPort = 10000;
@@ -264,6 +304,7 @@ main (int argc, char *argv[])
   std::string txLog ("tx.log");
   std::string backoffLog ("detBackoff.log");
   std::string bitmapLog ("bitmap.log");
+  std::string srLog ("sr.log");
   double totalSimtime = 10; //in seconds
   double startClientApp = 2;
   int32_t seed = -1;
@@ -316,6 +357,10 @@ main (int argc, char *argv[])
   results.sxTx = 0;
   results.failTx = 0;
   results.txAttempts = 0;
+  results.srAttempts = 0;
+  results.srFails = 0;
+  results.srReductions = 0;
+  results.stas = nWifi - 1;
 
 
   // Check for valid number of csma or wifi nodes
@@ -334,6 +379,7 @@ main (int argc, char *argv[])
   Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream (txLog);
   Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
   Ptr<OutputStreamWrapper> bitmap_stream = asciiTraceHelper.CreateFileStream (bitmapLog);
+  Ptr<OutputStreamWrapper> sr_stream = asciiTraceHelper.CreateFileStream (srLog);
 
   //Setting simulation seed
   if(seed >= 0)
@@ -482,6 +528,10 @@ main (int argc, char *argv[])
           dca->TraceConnect ("TxAttempts", n.str (), MakeBoundCallback (&TraceTxAttempts, tx_stream, &results));
           dca->TraceConnect ("BackoffCounter", n.str (), MakeBoundCallback (&TraceAssignedBackoff, backoff_stream));
           dca->TraceConnect ("Bitmap", n.str (), MakeBoundCallback (&TraceEcaBitmap, bitmap_stream));
+          dca->TraceConnect ("SrReductionAttempts", n.str (), MakeBoundCallback (&TraceSrAttempts, sr_stream, &results));
+          dca->TraceConnect ("SrReductions", n.str (), MakeBoundCallback (&TraceSrReductions, sr_stream, &results));
+          dca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
+
           dcfManager->TraceConnect ("LastTxDuration", n.str (), MakeBoundCallback (&TraceLastTxDuration, tx_stream));
         }
     }
