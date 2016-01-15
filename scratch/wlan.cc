@@ -253,6 +253,10 @@ finaliseSetup(struct sim_config &config)
           ->GetMac ()->GetObject<RegularWifiMac> ()->GetDcaTxop ();
         dca->ResetStats ();
         dcfManager->SetEnvironmentForECA (config.hysteresis, config.bitmap);      
+
+        if(config.CWmin > 0)
+          dca->SetMinCw(config.CWmin);
+        
         /* Setting all the nasty stuff for Schedule Reset */      
         if(config.bitmap == true)
           {
@@ -262,9 +266,6 @@ finaliseSetup(struct sim_config &config)
             if (config.srResetMode)
               dca->SetScheduleResetMode ();
           }
-
-        if(config.CWmin > 0)
-          dca->SetMinCw(config.CWmin);
     }
 
 
@@ -286,6 +287,23 @@ finaliseSetup(struct sim_config &config)
   std::cout << "-srConservative: " << config.srConservative << std::endl;
   std::cout << "-srActivationThreshold: " << config.srActivationThreshold << std::endl;
   std::cout << "-srResetMode: " << config.srResetMode << std::endl;
+
+  std::cout << "\n**WiFi protocol details:" << std::endl;
+  Ptr<WifiMac> apMac = allNodes->Get (0)->GetDevice (0)->GetObject<WifiNetDevice> ()
+          ->GetMac ();
+  Ptr<WifiMac> staMac = allNodes->Get (1)->GetDevice (0)->GetObject<WifiNetDevice> ()
+          ->GetMac ();
+  std::cout << "-Slot duration: " << staMac->GetSlot ().GetMicroSeconds () << std::endl;
+  std::cout << "\t-For the Ap: " << apMac->GetSlot ().GetMicroSeconds () << std::endl;
+  std::cout << "-SIFS: " << staMac->GetSifs ().GetMicroSeconds () << std::endl;
+  std::cout << "\t-For the Ap: " << apMac->GetSifs ().GetMicroSeconds () << std::endl;
+  std::cout << "-EIFSnoDIFS: " << staMac->GetEifsNoDifs ().GetMicroSeconds () << std::endl;
+  std::cout << "\t-For the Ap: " << apMac->GetEifsNoDifs ().GetMicroSeconds () << std::endl;
+  std::cout << "-Ack timeout: " << staMac->GetAckTimeout  ().GetMicroSeconds () << std::endl;
+  std::cout << "\t-For the Ap: " << apMac->GetAckTimeout  ().GetMicroSeconds () << std::endl;
+
+
+
 }
 
 int 
@@ -543,12 +561,13 @@ main (int argc, char *argv[])
       LogComponentEnable ("DcfManager", LOG_LEVEL_DEBUG);
       LogComponentEnable ("DcaTxop", LOG_LEVEL_DEBUG);
       LogComponentEnable ("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("RegularWifiMac", LOG_LEVEL_DEBUG);
     }
 
   Simulator::Stop (Seconds (startClientApp + totalSimtime));
 
   //Finilise setup
-  Simulator::Schedule(Seconds(startClientApp-0.5), finaliseSetup, config);
+  Simulator::Schedule(Seconds(startClientApp - 0.000009), finaliseSetup, config);
 
   //Last call to the printResults function
   Simulator::Schedule(Seconds(startClientApp  + totalSimtime - 0.000009), printResults, 

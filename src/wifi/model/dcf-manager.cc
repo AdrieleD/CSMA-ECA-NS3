@@ -1027,8 +1027,7 @@ void
 DcfManager::UpdateEcaBitmap ()
 {
   if (isNextSlotBusy ()){
-    DcfState *state = *(m_states. begin());
-    uint32_t position = m_ecaBitmap.size () - state->GetBackoffSlots () - 1;
+    uint32_t position = GetCurrentBitmapPosition ();
     if (position < m_ecaBitmap.size ())
       {
         m_ecaBitmap.at(position) = true;
