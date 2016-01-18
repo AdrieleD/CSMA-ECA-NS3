@@ -58,6 +58,8 @@ struct sim_config{
   bool srConservative;
   uint32_t srActivationThreshold;
   bool srResetMode;
+  uint32_t EIFSnoDIFS;
+  uint32_t ackTimeout;
 };
 struct sim_config config;
 
@@ -104,11 +106,12 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
   std::cout << "-Total received datagrams: " << total_rx_packets << std::endl;
   double colFrac = 0;
   if (col > 0) colFrac = col/attempts;
-  std::cout << "-Fraction of tx resulting in collisions: " << colFrac << std::endl;
+  std::cout << "-Fraction of tx resulting in collisions: " << colFrac << ". " << attempts << " attempts" << std::endl;
   std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs.\n" << std::endl;
   uint64_t index = attempts - (col + sx);
   if (index != 0)
-    std::cout << "\tSomething is wrong with couting the results of tx attempts (" << index << ")\n" << std::endl;
+    std::cout << "\tSomething is wrong with couting the results of tx attempts (" << index << "): failTx: " << results->failTx 
+      << " " << std::endl;
 
   if (config.bitmap)
     {
@@ -236,7 +239,7 @@ finaliseSetup(struct sim_config &config)
       Ipv4Address ip = allNodes->Get (j)->GetObject<Ipv4> ()->GetAddress (1,0).GetLocal ();
       Ptr<ArpCache> arpCache = allNodes->Get (i)->GetObject<Ipv4L3Protocol> ()->GetInterface (1)->GetArpCache ();
 
-      if(arpCache == NULL)
+      if (arpCache == NULL)
         arpCache = CreateObject<ArpCache>( );
       arpCache->SetAliveTimeout (Seconds (config.totalSimtime + config.startClientApp));
       ArpCache::Entry *entry = arpCache->Add (ip);
@@ -244,21 +247,31 @@ finaliseSetup(struct sim_config &config)
       entry->MarkAlive(mac);
     }
 
-    if(config.ECA == true)
+    if (config.ECA == true)
       {
         /* Resetting node's state and stats */
         Ptr<DcfManager> dcfManager = allNodes->Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
           ->GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
         Ptr<DcaTxop> dca = allNodes->Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
           ->GetMac ()->GetObject<RegularWifiMac> ()->GetDcaTxop ();
+        Ptr<WifiMac> wifiMac = allNodes->Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
+          ->GetMac ();
+
         dca->ResetStats ();
         dcfManager->SetEnvironmentForECA (config.hysteresis, config.bitmap);      
 
-        if(config.CWmin > 0)
+        if (config.CWmin > 0)
           dca->SetMinCw(config.CWmin);
+
+        /* Setting the Ack timeout and EIFS no DIFS to be equal to DIFS */
+        if (config.EIFSnoDIFS > 0)
+          dcfManager->SetEifsNoDifs (MicroSeconds (config.EIFSnoDIFS));
+        if (config.ackTimeout > 0)
+          wifiMac->SetAckTimeout (MicroSeconds (config.ackTimeout));
+
         
         /* Setting all the nasty stuff for Schedule Reset */      
-        if(config.bitmap == true)
+        if (config.bitmap == true)
           {
             dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
             if (config.srConservative)
@@ -334,6 +347,8 @@ main (int argc, char *argv[])
   bool srConservative = false;
   uint32_t srActivationThreshold = 1;
   bool srResetMode = false;
+  uint32_t EIFSnoDIFS = -1; //µs
+  uint32_t ackTimeout = -1; //µs
 
 
   CommandLine cmd;
@@ -352,11 +367,13 @@ main (int argc, char *argv[])
   cmd.AddValue ("srConservative", "Adjusts the number of iterations for building Schedule Reset bitmap", srConservative);
   cmd.AddValue ("srActivationThreshold", "After this many consecutive successfull transmissions, SR is activated", srActivationThreshold);
   cmd.AddValue ("srResetMode", "By default, schedules will be halved. Set true for Schedule Reset", srResetMode);
+  cmd.AddValue ("EIFSnoDIFS", "IFS before retransmitting a frame", EIFSnoDIFS);
+  cmd.AddValue ("AckTimeout", "Time that will timeout the DATA+ACK exchange", ackTimeout);
 
   cmd.Parse (argc,argv);
 
   config.nWifi = nWifi;
-  config.lastReport = ns3::Time(MicroSeconds(0));
+  config.lastReport = ns3::Time (MicroSeconds (0));
   config.tracing = tracing;
   config.verbose = verbose;
   config.totalSimtime = totalSimtime;
@@ -371,6 +388,8 @@ main (int argc, char *argv[])
   config.srConservative = srConservative;
   config.srActivationThreshold = srActivationThreshold;
   config.srResetMode = srResetMode;
+  config.EIFSnoDIFS = EIFSnoDIFS;
+  config.ackTimeout = ackTimeout;
 
   results.sxTx = 0;
   results.failTx = 0;
@@ -562,6 +581,7 @@ main (int argc, char *argv[])
       LogComponentEnable ("DcaTxop", LOG_LEVEL_DEBUG);
       LogComponentEnable ("WifiRemoteStationManager", LOG_LEVEL_DEBUG);
       LogComponentEnable ("RegularWifiMac", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("MacLow", LOG_LEVEL_DEBUG);
     }
 
   Simulator::Stop (Seconds (startClientApp + totalSimtime));

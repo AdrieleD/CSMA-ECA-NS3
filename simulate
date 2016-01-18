@@ -11,6 +11,8 @@ my $ECA = false;
 my $hyst = false;
 my $bitmap = false;
 my $srConservative = false;
+my $EIFSnoDIFS;
+my $ackTimeout
 my @command = './waf --cwd=tmp/ --run "scratch/wlan';
 
 foreach (@ARGV){
@@ -41,7 +43,9 @@ if( $nMax > $nMin ){
 				--tracing=$tracing 
 				--hysteresis=$hyst 										
 				--bitmap=$bitmap 															
-				--srConservative=$srConservative\"");
+				--srConservative=$srConservative
+				--EIFSnoDIFS=$EIFSnoDIFS
+				--ackTimeout=$ackTimeout\"");
 			my @outPut = "@command @addition";
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
@@ -58,9 +62,13 @@ if( $nMax > $nMin ){
 				--verbose=$verbose 
 				--seed=$seed 
 				--totalSimtime=$totalSimTime 
-				--ECA=$ECA --tracing=$tracing 
-				--hysteresis=$hyst --bitmap=$bitmap
-				--srConservative=$srConservative\"");
+				--ECA=$ECA 
+				--tracing=$tracing 
+				--hysteresis=$hyst 
+				--bitmap=$bitmap
+				--srConservative=$srConservative
+				--EIFSnoDIFS=$EIFSnoDIFS
+				--ackTimeout=$ackTimeout\"");
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
 			system(@outPut);

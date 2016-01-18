@@ -40,6 +40,9 @@
 #undef NS_LOG_APPEND_CONTEXT
 #define NS_LOG_APPEND_CONTEXT if (m_low != 0) { std::clog << "[mac=" << m_low->GetAddress () << "] "; }
 
+#define MY_DEBUG(x) \
+  NS_LOG_DEBUG (Simulator::Now () << " " << this << " " << x)
+
 namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("DcaTxop");
@@ -733,7 +736,7 @@ DcaTxop::MissedAck (void)
     }
   else
     {
-      NS_LOG_DEBUG ("Retransmit");
+      MY_DEBUG ("Retransmit");
       m_currentHdr.SetRetry ();
       m_dcf->UpdateFailedCw ();
     }

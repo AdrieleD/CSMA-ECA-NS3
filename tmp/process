@@ -6,6 +6,7 @@ use Statistics::Basic qw(:all);
 my $inputFile = $ARGV[0];
 my $highNodes = 0;
 my $lowNodes = 1000;
+my @time;
 my $outputFile = 'averaged.dat';
 my $aggregatedFile = 'totalAveraged.dat';
 
@@ -57,15 +58,30 @@ NEXT: foreach($lowNodes .. $highNodes){
 	print $fw "\n";
 }
 
-# open(my $fw, ">>", $aggregatedFile)
-#     or die "Could not open write file $aggregatedFile $!";
+###Processing the tx.log, searching for the number of collisions seen by an external observer
+my $now = 0;
+my $infoCol = 2;
+my $failCol = 2;
+my %fails;
+my $txLog = 'tx.log';
+open(my $tx, '<', $txLog)
+	or die "Could not open $txLog file\n";
+#Finding time marks
+while(my $row = <$tx>){
+	chomp($row);
+	my @data = split(/\s+/, $row);
+	$now = $data[0]
+		if ($data[0] != $now);
 
-# my $totalNodes = $highNodes+1;
-# my $aggSx = sum(@totalSxFrames);
-# my $aggFail = sum(@totalFailedFrames);
-# my $aggTx = sum(@totalTxAttempts);
-# print "-Processing the output file(s)\n";
-# print $fw ("$totalNodes $aggSx $aggFail $aggTx\n");
+	if ($data[$infoCol] == $failCol){
+		$fails{$now} = 1;
+	}else{
+		$fails{$now} = 0;
+	}
+}
+foreach my $key ( keys %fails )
+{
+  $collisions += $fails{$key};
+}
 
-
-
+print("-Collisions seen as an outside observer: $collisions\n");
