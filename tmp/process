@@ -63,6 +63,7 @@ my $now = 0;
 my $infoCol = 2;
 my $failCol = 2;
 my %fails;
+my $collisions = 0;
 my $txLog = 'tx.log';
 open(my $tx, '<', $txLog)
 	or die "Could not open $txLog file\n";

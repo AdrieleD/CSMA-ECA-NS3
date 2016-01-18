@@ -264,8 +264,8 @@ finaliseSetup(struct sim_config &config)
           dca->SetMinCw(config.CWmin);
 
         /* Setting the Ack timeout and EIFS no DIFS to be equal to DIFS */
-        if (config.EIFSnoDIFS > 0)
-          dcfManager->SetEifsNoDifs (MicroSeconds (config.EIFSnoDIFS));
+        if (config.EIFSnoDIFS == 0)
+          wifiMac->SetEifsNoDifs (MicroSeconds (config.EIFSnoDIFS));
         if (config.ackTimeout > 0)
           wifiMac->SetAckTimeout (MicroSeconds (config.ackTimeout));
 
@@ -300,6 +300,8 @@ finaliseSetup(struct sim_config &config)
   std::cout << "-srConservative: " << config.srConservative << std::endl;
   std::cout << "-srActivationThreshold: " << config.srActivationThreshold << std::endl;
   std::cout << "-srResetMode: " << config.srResetMode << std::endl;
+  std::cout << "-EIFSnoDIFS: " << config.EIFSnoDIFS << std::endl;
+  std::cout << "-AckTimeout: " << config.ackTimeout << std::endl;
 
   std::cout << "\n**WiFi protocol details:" << std::endl;
   Ptr<WifiMac> apMac = allNodes->Get (0)->GetDevice (0)->GetObject<WifiNetDevice> ()
