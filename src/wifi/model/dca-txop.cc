@@ -693,6 +693,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
                           m_srBeingFilled = false;
                           ResetConsecutiveSuccess ();
                           m_srIterations = GetConsecutiveSuccesses ();
+                          m_manager->nextSlotIsNotBusy ();
                         }
                     }
                 } 

@@ -512,12 +512,16 @@ DcfManager::RequestAccess (DcfState *state)
     {
       return;
     }
+
+  UpdateBackoff ();
+
   if(GetScheduleReset ())
     {
-      NS_LOG_DEBUG ("Busy next slot #" << GetCurrentBitmapPosition ());
+      MY_DEBUG ("Busy next slot");
     }
+
   m_isNextSlotBusy = true;
-  UpdateBackoff ();
+
   NS_ASSERT (!state->IsAccessRequested ());
   state->NotifyAccessRequested ();
   /**
@@ -680,7 +684,8 @@ DcfManager::UpdateBackoff (void)
             {  
               if(GetEnvironmentForECA () == true && GetScheduleReset ())
               {
-                UpdateEcaBitmap ();
+                MY_DEBUG ("Attempting to update the bitmap");
+                UpdateEcaBitmap (state);
               }
             }
         }
@@ -732,9 +737,10 @@ DcfManager::NotifyRxStartNow (Time duration)
 {
   NS_LOG_FUNCTION (this << duration);
   NS_LOG_DEBUG ("rx start for=" << duration);
+
   if(GetScheduleReset ())
     {
-      NS_LOG_DEBUG ("Busy next slot #" << GetCurrentBitmapPosition ());
+      MY_DEBUG ("Busy next slot");
     }
   m_isNextSlotBusy = true;
   UpdateBackoff ();
@@ -789,12 +795,13 @@ DcfManager::NotifyMaybeCcaBusyStartNow (Time duration)
 {
   NS_LOG_FUNCTION (this << duration);
   MY_DEBUG ("busy start for " << duration);
+  UpdateBackoff ();
+
   if(GetScheduleReset ())
     {
-      NS_LOG_DEBUG ("Busy next slot #" << GetCurrentBitmapPosition ());
+      MY_DEBUG ("Busy next slot");
     }
   m_isNextSlotBusy = true;
-  UpdateBackoff ();
   m_lastBusyStart = Simulator::Now ();
   m_lastBusyDuration = duration;
 }
@@ -980,11 +987,11 @@ DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap)
     }
   if (bitmap == true)
     {
-    m_scheduleReset = true;
-    NS_LOG_DEBUG ("Setting Schedule Reset: " << m_scheduleReset);
-    DcfState *state = *(m_states.begin ());
-    uint32_t size = state->GetCw () / 2 + 1;
-    StartNewEcaBitmap (size);
+      m_scheduleReset = true;
+      NS_LOG_DEBUG ("Setting Schedule Reset: " << m_scheduleReset);
+      DcfState *state = *(m_states.begin ());
+      uint32_t size = state->GetCw () / 2 + 1;
+      StartNewEcaBitmap (size);
     }
 }
 
@@ -1024,26 +1031,30 @@ DcfManager::GetBitmap (void)
 }
 
 void 
-DcfManager::UpdateEcaBitmap ()
+DcfManager::UpdateEcaBitmap (DcfState *state)
 {
-  if (isNextSlotBusy ()){
-    uint32_t position = GetCurrentBitmapPosition ();
-    if (position < m_ecaBitmap.size ())
-      {
-        m_ecaBitmap.at(position) = true;
-        MY_DEBUG ("marking position: " << position << " as busy");
-      }
-  }
+  uint32_t position = GetCurrentBitmapPosition (state);
+  if (isNextSlotBusy ())
+    {
+      if (position < m_ecaBitmap.size ())
+        {
+          m_ecaBitmap.at(position) = true;
+          MY_DEBUG ("marking bitmap position: " << position << " as busy");
+        }
+    }
+  else
+    {
+      MY_DEBUG ("Slot #" << position << " was free");
+    }
   m_isNextSlotBusy = false;
 }
 
 uint32_t
-DcfManager::GetCurrentBitmapPosition ()
+DcfManager::GetCurrentBitmapPosition (DcfState *state)
 {
   uint32_t position = 0;
   if (GetScheduleReset ())
   {
-    DcfState *state = *(m_states.begin());
     position = m_ecaBitmap.size () - state->GetBackoffSlots () - 1;
   }
   return position;
@@ -1059,6 +1070,12 @@ bool
 DcfManager::isNextSlotBusy (void)
 {
   return m_isNextSlotBusy;
+}
+
+void
+DcfManager::nextSlotIsNotBusy (void)
+{
+  m_isNextSlotBusy = false;
 }
 
 } //namespace ns3

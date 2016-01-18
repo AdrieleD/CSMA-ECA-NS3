@@ -427,10 +427,11 @@ public:
   void UpdateTracedTxDuration (void);
   void StartNewEcaBitmap (uint32_t size);
   std::vector<bool>* GetBitmap (void);
-  void UpdateEcaBitmap (void);
+  void UpdateEcaBitmap (DcfState *state);
   bool GetScheduleReset (void);
   bool isNextSlotBusy (void);
-  uint32_t GetCurrentBitmapPosition (void);
+  uint32_t GetCurrentBitmapPosition (DcfState *state);
+  void nextSlotIsNotBusy (void);
 
 
 private:

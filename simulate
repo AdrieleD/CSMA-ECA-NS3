@@ -11,8 +11,8 @@ my $ECA = false;
 my $hyst = false;
 my $bitmap = false;
 my $srConservative = false;
-my $EIFSnoDIFS = 0;
-my $ackTimeout = 0ls;
+my $EIFSnoDIFS = 1;
+my $ackTimeout = 0;
 my @command = './waf --cwd=tmp/ --run "scratch/wlan';
 
 foreach (@ARGV){
