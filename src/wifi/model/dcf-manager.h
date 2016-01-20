@@ -421,7 +421,7 @@ public:
    *
    *
   */
-  void SetEnvironmentForECA (bool hysteresis, bool bitmap);
+  void SetEnvironmentForECA (bool hysteresis, bool bitmap, uint32_t stickiness, bool dynStick);
   bool GetEnvironmentForECA (void);
   bool GetHysteresisForECA (void);
   void UpdateTracedTxDuration (void);
@@ -432,6 +432,14 @@ public:
   bool isNextSlotBusy (void);
   uint32_t GetCurrentBitmapPosition (DcfState *state);
   void nextSlotIsNotBusy (void);
+  uint32_t GetStickiness (void);
+  void ReduceStickiness (void);
+  void ResetStickiness (void);
+  void IncreaseStickiness (void);
+  bool UseDynamicStickiness (void);
+  bool AreWeFillingTheBitmap (void);
+  void SetFillingTheBitmap (void);
+  void SetNotFillingTheBitmap (void);
 
 
 private:
@@ -575,6 +583,10 @@ private:
   bool m_scheduleReset;
   std::vector<bool> m_ecaBitmap;
   bool m_isNextSlotBusy;
+  uint32_t m_stickiness;
+  uint32_t m_resetStickiness;
+  bool m_dynamicStickiness;
+  bool m_areWeFillingTheBitmap;
 
 
   TracedValue<uint64_t> m_lastTracedTxDuration;

@@ -11,7 +11,7 @@ my $sxTxCode = 1;
 my $failTxCode = 2;
 my $txCode = 3;
 my $txDurationCode = 5;
-my $simTime = 10; #Should match simulate file
+my $simTime = 50; #Should match simulate file
 my $load = 1470 * 8 * 1/$simTime; #This should match the packet length in wlan.cc
 
 open(my $input, "<", $inputFile)

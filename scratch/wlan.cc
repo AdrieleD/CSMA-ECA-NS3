@@ -53,6 +53,8 @@ struct sim_config{
   bool ECA;
   uint32_t CWmin;
   bool hysteresis;
+  uint32_t stickiness;
+  bool dynStick;
   bool fairShare;
   bool bitmap;
   bool srConservative;
@@ -90,14 +92,16 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
   double attempts = results->txAttempts;
   double sx = results->sxTx;
 
-  for (uint32_t i = 0; i < config.nWifi-1; i++)
+  for (uint32_t i = 0; i < config.servers.GetN(); i++)
     {
-    uint64_t rx_packets;
-    rx_packets = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
-    total_rx_packets += rx_packets;
-    rx_bits += (rx_packets * config.payload * 8.0);
-    // std::cout << i << " " << rx_packets << " " << config.servers.GetN() << std::endl;
+      uint64_t rx_packets;
+      rx_packets = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
+      total_rx_packets += rx_packets;
+      rx_bits += (rx_packets * config.payload * 8.0);
+      // std::cout << i << " " << rx_packets << " " << config.servers.GetN() << std::endl;
     }
+  // std::cout << "Rx bit according to the TCP servers: " << total_rx_packets << std::endl;
+  // std::cout << "Overall sx from DcaTxop: " << sx << std::endl;
 
   std::cout << "\n\n***RESULTS***" << std::endl;
   std::cout << "-Number of STAs: " << results->stas << std::endl;
@@ -258,26 +262,28 @@ finaliseSetup(struct sim_config &config)
           ->GetMac ();
 
         dca->ResetStats ();
-        dcfManager->SetEnvironmentForECA (config.hysteresis, config.bitmap);      
+        dcfManager->SetEnvironmentForECA (config.hysteresis, config.bitmap, 
+          config.stickiness, config.dynStick);      
 
         if (config.CWmin > 0)
           dca->SetMinCw(config.CWmin);
 
         /* Setting the Ack timeout and EIFS no DIFS to be equal to DIFS */
-        if (config.EIFSnoDIFS == 0)
+        if (config.EIFSnoDIFS != 314)
           wifiMac->SetEifsNoDifs (MicroSeconds (config.EIFSnoDIFS));
-        if (config.ackTimeout > 0)
+        if (config.ackTimeout != 340)
           wifiMac->SetAckTimeout (MicroSeconds (config.ackTimeout));
 
         
         /* Setting all the nasty stuff for Schedule Reset */      
         if (config.bitmap == true)
           {
-            dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
+            if (config.srActivationThreshold == 1)
+              dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
             if (config.srConservative)
               dca->SetScheduleConservative ();
             if (config.srResetMode)
-              dca->SetScheduleResetMode ();
+              dca->SetScheduleResetMode (); //Halving or reset?
           }
     }
 
@@ -344,13 +350,15 @@ main (int argc, char *argv[])
   bool ECA = false;
   uint32_t CWmin = 0;
   bool hysteresis = false;
+  uint32_t stickiness = 0;
+  bool dynStick = false;
   bool fairShare = false;
   bool bitmap = false;
   bool srConservative = false;
-  uint32_t srActivationThreshold = 1;
+  uint32_t srActivationThreshold = 1; //set to 0 for a conservative activation threshold
   bool srResetMode = false;
-  uint32_t EIFSnoDIFS = -1; //µs
-  uint32_t ackTimeout = -1; //µs
+  uint32_t EIFSnoDIFS = 314; //µs
+  uint32_t ackTimeout = 340; //µs
 
 
   CommandLine cmd;
@@ -364,6 +372,8 @@ main (int argc, char *argv[])
   cmd.AddValue ("ECA", "CSMA/ECA", ECA);
   cmd.AddValue ("CWmin", "Minimum contention window", CWmin);
   cmd.AddValue ("hysteresis", "Do we keep the CurCW after a sxTx?", hysteresis);
+  cmd.AddValue ("stickiness", "Number of consecutive collisions needed to reset to CwMin", stickiness);
+  cmd.AddValue ("dynStick", "Increase the stickiness after a successful reduction of the schedule", dynStick);
   cmd.AddValue ("fairShare", "Do we aggregate according to hysteresis?", fairShare);
   cmd.AddValue ("bitmap", "Are we using Schedule Reset?", bitmap);
   cmd.AddValue ("srConservative", "Adjusts the number of iterations for building Schedule Reset bitmap", srConservative);
@@ -385,6 +395,8 @@ main (int argc, char *argv[])
   config.ECA = ECA;
   config.CWmin = CWmin;
   config.hysteresis = hysteresis;
+  config.stickiness = stickiness;
+  config.dynStick = dynStick;
   config.fairShare = fairShare;
   config.bitmap = bitmap;
   config.srConservative = srConservative;

@@ -182,6 +182,7 @@ public:
   void ModifyCwAccordingToScheduleReduction (void);
   uint32_t GetScheduleReductionFactor (void);
   void ResetSrMetrics (void);
+  void KeepScheduleReductionIfAny (void);
 
   //For tracing the bitmap
   typedef void (* TracedEcaBitmap) (std::vector<bool> *bmold, std::vector<bool> *bmnew); 
@@ -386,6 +387,8 @@ private:
   bool m_srBeingFilled;
   uint32_t m_srIterations;
   uint32_t m_srReductionFactor;
+  bool m_scheduleRecentlyReduced;
+  uint32_t m_srPreviousCw;
  
   TracedValue<uint64_t> m_failures;
   TracedValue<uint64_t> m_successes;

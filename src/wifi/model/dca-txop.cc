@@ -183,9 +183,12 @@ DcaTxop::GetTypeId (void)
 DcaTxop::DcaTxop ()
   : m_manager (0),
     m_currentPacket (0),
+    m_srActivationThreshold (0),
     m_srBeingFilled (false),
     m_srIterations (0),
-    m_srReductionFactor (2),
+    m_srReductionFactor (1),
+    m_scheduleRecentlyReduced (false),
+    m_srPreviousCw (0),
     m_failures (0),
     m_successes (0),
     m_txAttempts (0),
@@ -639,12 +642,13 @@ void
 DcaTxop::GotAck (double snr, WifiMode txMode)
 {
   NS_LOG_FUNCTION (this << snr << txMode);
+  m_successes++;
   if (!NeedFragmentation ()
       || IsLastFragment ())
     {
       NS_LOG_DEBUG ("got ack. tx done.");
-      m_successes++;
       AddConsecutiveSuccess();
+      m_manager->ResetStickiness ();
       if (!m_txOkCallback.IsNull ())
         {
           m_txOkCallback (m_currentHdr);
@@ -655,32 +659,40 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
        */
       m_currentPacket = 0;
 
-      /* Begin of CSMA/ECA */
+      /* Beginning  of CSMA/ECA */
       if (m_manager->GetEnvironmentForECA ())
         {
           NS_LOG_DEBUG ("***ECA=true");
-          if (!(m_manager->GetHysteresisForECA ()))
+          if (!m_manager->GetHysteresisForECA ())
             m_dcf->ResetCw ();
 
           if (m_manager->GetScheduleReset ())
             {
+              if (m_scheduleRecentlyReduced == true)
+                KeepScheduleReductionIfAny ();
+              if (m_srActivationThreshold == 0) 
+                SetScheduleResetActivationThreshold ( (m_dcf->GetCwMax () + 1) / ( (m_dcf->GetCw () + 1) / 2) );
+
               NS_LOG_DEBUG ("Schedule Reset. Sx #" << GetConsecutiveSuccesses ()
-                << " thresh: " << GetScheduleResetActivationThreshold ());
+                << " activation thresh: " << GetScheduleResetActivationThreshold ());
+
               if (GetConsecutiveSuccesses () >= GetScheduleResetActivationThreshold ())
                 {
                   if (!m_srBeingFilled)
                     {
                       NS_LOG_DEBUG ("Starting to fill the bitmap");
-                      uint32_t size = m_dcf->GetCw () / 2 + 1;
+                      SetScheduleResetThreshold ();
+                      uint32_t size = (m_dcf->GetCw () / 2) + 1; //number of elements in vector
                       m_manager->StartNewEcaBitmap (size);
                       m_srBeingFilled = true;
+                      m_manager->SetFillingTheBitmap ();
                       m_srIterations = GetConsecutiveSuccesses ();
                     }
                   else
                     {
-                      NS_LOG_DEBUG ("Checking bitmap for Schedule Reset");
                       if( (GetConsecutiveSuccesses () - m_srIterations) >= GetScheduleResetThreshold ())
                         {
+                          NS_LOG_DEBUG ("Checking bitmap for Schedule Reset");
                           if(CanWeReduceTheSchedule ())
                             {
                               NS_LOG_DEBUG ("We can reduce the schedule");
@@ -691,9 +703,9 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
                               NS_LOG_DEBUG ("We cannot reduce the schedule");
                             }
                           m_srBeingFilled = false;
+                          m_manager->SetNotFillingTheBitmap ();
                           ResetConsecutiveSuccess ();
                           m_srIterations = GetConsecutiveSuccesses ();
-                          m_manager->nextSlotIsNotBusy ();
                         }
                     }
                 } 
@@ -739,14 +751,28 @@ DcaTxop::MissedAck (void)
     {
       MY_DEBUG ("Retransmit");
       m_currentHdr.SetRetry ();
-      m_dcf->UpdateFailedCw ();
+
+      /* Reverting the Schedule Reset if any */
+      if (m_manager->GetStickiness () == 0)
+        {
+          MY_DEBUG ("Node's stickiness: " << m_manager->GetStickiness ());
+          if (m_manager->GetScheduleReset ())
+            ResetSrMetrics ();
+          ResetConsecutiveSuccess();
+          m_dcf->UpdateFailedCw ();
+          m_failures++;
+          // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+          m_dcf->StartBackoffNow (tracedRandomFactory ());
+        }
+      else
+        {
+          NS_ASSERT (m_manager->GetStickiness () > 0);
+          MY_DEBUG ("Reducing stickiness from: " << m_manager->GetStickiness ());
+          m_manager->ReduceStickiness ();
+          MY_DEBUG ("Assigning a deterministic backoff");
+          m_dcf->StartBackoffNow (deterministicBackoff (m_dcf->GetCw ()));
+        }
     }
-  m_failures++;
-  ResetConsecutiveSuccess();
-  if (m_manager->GetScheduleReset ())
-    ResetSrMetrics ();
-  // m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-  m_dcf->StartBackoffNow (tracedRandomFactory ());
   RestartAccessIfNeeded ();
 }
 
@@ -815,6 +841,8 @@ DcaTxop::EndTxNoAck (void)
   
   if(m_manager->GetEnvironmentForECA ())
     {
+      if (!m_manager->GetHysteresisForECA ())
+        m_dcf->ResetCw ();
       m_dcf->StartBackoffNow (deterministicBackoff (m_dcf->GetCw ()));
     }
   else
@@ -920,7 +948,7 @@ DcaTxop::GetScheduleResetMode (void)
 }
 
 void
-DcaTxop::SetScheduleResetMode ()
+DcaTxop::SetScheduleResetMode (void)
 {
   m_scheduleResetMode = true;
 }
@@ -933,15 +961,12 @@ DcaTxop::CanWeReduceTheSchedule (void)
   NS_LOG_DEBUG ("Got the bitmap from DcfManager " << bitmap->size ());
   
   /* Updating the traced value */
-  if(m_manager->GetScheduleReset ()) 
-    {
-      m_ecaBitmap = (std::vector<bool>*) 0;
-      m_ecaBitmap = bitmap;
-    }
+  m_ecaBitmap = (std::vector<bool>*) 0;
+  m_ecaBitmap = bitmap;
 
   /* Checking the possibility of a schedule reduction */
   uint32_t currentSize = bitmap->size ();
-  if (GetScheduleResetMode () == false)
+  if (!GetScheduleResetMode ())
     {
       /* That is, a Schedule Halving */
       /* Debugging the bitmap */
@@ -957,26 +982,56 @@ DcaTxop::CanWeReduceTheSchedule (void)
         {
           NS_LOG_DEBUG ("A schedule halving is possible. Size: " << currentSize );
           canI = true;
+          m_srReductionFactor = 2;
         }
     }
   else
     {
+      /* Debugging the bitmap */
       NS_LOG_DEBUG ("Checking for Schedule Reset");
+      uint32_t slot = 0; 
+      for (std::vector<bool>::iterator i = bitmap->begin (); i != bitmap->end (); i++, slot++)
+        {
+          NS_LOG_DEBUG ("Bitmap position " << slot << " value: " << *i);
+        }
+      /* End of debug */
+      
+
+      uint32_t maxStage =  log2 ((m_dcf->GetCw () + 1) / (m_dcf->GetCwMin () + 1));
+      if(maxStage > 1)
+        {
+          for (uint32_t i = 0; i <= maxStage; i++)
+            {
+              uint32_t position = pow (2,i) * m_dcf->GetCwMin () / 2;
+              NS_ASSERT (position < currentSize);
+              if (!bitmap->at (position))
+              {
+                NS_LOG_DEBUG ("A schedule reset is possible. Position: " << position );
+                canI = true;
+                m_srReductionFactor = (m_dcf->GetCw () + 1) / (pow (2,i) * m_dcf->GetCwMin () + 1);
+                break;
+              }
+            }
+        }
+        else if (maxStage == 1)
+        {
+          canI = true;
+          m_srReductionFactor = 1;
+        }
     }
 
-    /* Updating traced values */
-    m_scheduleReductionAttempts++;
-    if (canI == true)
-      {
-        m_scheduleReductions++;
-      }
-    else
-      {
-        m_scheduleReductionFailed++;
-      }
-    /* Done updating */
-
-    return canI;
+  /* Updating traced values */
+  m_scheduleReductionAttempts++;
+  if (canI == true)
+    {
+      m_scheduleReductions++;
+    }
+  else
+    {
+      m_scheduleReductionFailed++;
+    }
+  /* Done updating */
+  return canI;
 }
 
 uint32_t
@@ -989,12 +1044,15 @@ void
 DcaTxop::SetScheduleResetThreshold (void)
 {
   m_settingThreshold = true;
-  m_scheduleResetThreshold = 1;
 
   if(m_scheduleResetConservative)
     {
-      m_scheduleResetThreshold = ceil (m_dcf->GetCwMax () / 
-        deterministicBackoff (m_dcf->GetCw ()));
+      m_scheduleResetThreshold = ceil ((m_dcf->GetCwMax () + 1) / 
+        ( deterministicBackoff (m_dcf->GetCw ()) + 1));
+    }
+  else
+    {
+      m_scheduleResetThreshold = 1;
     }
 }
 
@@ -1019,14 +1077,26 @@ DcaTxop::GetScheduleResetActivationThreshold (void)
 void
 DcaTxop::ModifyCwAccordingToScheduleReduction (void)
 {
-  uint32_t current =  m_dcf->GetCw ();
+  m_srPreviousCw =  m_dcf->GetCw ();
   uint32_t factor = GetScheduleReductionFactor ();
-  uint32_t reduced = current / factor;
+  NS_ASSERT (factor > 0);
+
+  uint32_t reduced = ((m_dcf->GetCw () + 1) / factor) - 1;
+
   if(reduced > m_dcf->GetCwMin ())
     {
       m_dcf->SetCw (reduced);
-      NS_LOG_DEBUG ("Schedule Reset modified Cw from: " << current << " to: " << reduced);
     }
+  else
+    {
+      m_dcf->SetCw (m_dcf->GetCwMin ());
+    }
+
+  NS_LOG_DEBUG ("Schedule Reset modified Cw from: " << m_srPreviousCw << " to: " << m_dcf->GetCw ());
+
+  if (m_manager->UseDynamicStickiness ())
+    m_manager->IncreaseStickiness ();
+  m_scheduleRecentlyReduced = true;
 }
 
 uint32_t
@@ -1039,6 +1109,19 @@ void
 DcaTxop::ResetSrMetrics (void)
 {
   m_srBeingFilled = false;
+  m_manager->SetNotFillingTheBitmap ();
+  if (m_scheduleRecentlyReduced == true)
+    {
+      MY_DEBUG ("Resetting the chances made by Schedule Reset. Cw back to: " << m_srPreviousCw);
+      m_dcf->SetCw (m_srPreviousCw);
+    }
+  m_scheduleRecentlyReduced = false;
+}
+
+void
+DcaTxop::KeepScheduleReductionIfAny (void)
+{
+  m_scheduleRecentlyReduced = false;
 }
 
 
