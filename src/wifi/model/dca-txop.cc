@@ -682,7 +682,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
                     {
                       NS_LOG_DEBUG ("Starting to fill the bitmap");
                       SetScheduleResetThreshold ();
-                      uint32_t size = (m_dcf->GetCw () / 2) + 1; //number of elements in vector
+                      uint32_t size = (m_dcf->GetCw () / 2) + 2; //number of elements in vector + 1
                       m_manager->StartNewEcaBitmap (size);
                       m_srBeingFilled = true;
                       m_manager->SetFillingTheBitmap ();
@@ -922,7 +922,7 @@ DcaTxop::ResetStats (void)
 uint32_t
 DcaTxop::deterministicBackoff (uint32_t cw)
 {
-  uint32_t tmp = ceil(cw / 2);
+  uint32_t tmp = ceil(cw / 2) + 1;
   if(!m_settingThreshold)
     {
       m_boCounter = 0xFFFFFFFF;
@@ -1048,7 +1048,7 @@ DcaTxop::SetScheduleResetThreshold (void)
   if(m_scheduleResetConservative)
     {
       m_scheduleResetThreshold = ceil ((m_dcf->GetCwMax () + 1) / 
-        ( deterministicBackoff (m_dcf->GetCw ()) + 1));
+        ( deterministicBackoff (m_dcf->GetCw ())));
     }
   else
     {
