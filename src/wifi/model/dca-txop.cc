@@ -671,7 +671,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
               if (m_scheduleRecentlyReduced == true)
                 KeepScheduleReductionIfAny ();
               if (m_srActivationThreshold == 0) 
-                SetScheduleResetActivationThreshold ( (m_dcf->GetCwMax ()+ 1) ) / ( (m_dcf->GetCw () + 1) );
+                SetScheduleResetActivationThreshold ( (m_dcf->GetCwMax ()+ 1) / (m_dcf->GetCw () + 1) );
 
               NS_LOG_DEBUG ("Schedule Reset. Sx #" << GetConsecutiveSuccesses ()
                 << " activation thresh: " << GetScheduleResetActivationThreshold ());

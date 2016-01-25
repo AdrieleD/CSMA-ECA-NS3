@@ -63,6 +63,7 @@ struct sim_config{
   uint32_t EIFSnoDIFS;
   uint32_t ackTimeout;
   Time beaconInterval;
+  double frameMinFer;
 };
 struct sim_config config;
 
@@ -77,6 +78,7 @@ struct sim_results{
   uint32_t srFails;
   std::vector<Time> sumTimeBetweenSxTx;
   std::vector<Time> timeOfPrevSxTx;
+  uint64_t errorFrames;
 };
 struct sim_results results;
 
@@ -128,6 +130,8 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
   if (index != 0)
     std::cout << "\t-Something is wrong with couting the results of tx attempts (" << index << "): failTx: " << col 
       << " " << std::endl;
+
+    std::cout << "-Number of frames affected by errors: " << results->errorFrames << std::endl;
 
   if (config.bitmap)
     {
@@ -256,6 +260,13 @@ TraceSrFails(Ptr<OutputStreamWrapper> stream, struct sim_results *results,
   *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
 }
 
+void
+TraceErrorFrames(Ptr<OutputStreamWrapper> stream, struct sim_results *results,
+  std::string context, uint64_t oldValue, uint64_t newValue)
+{
+  results->errorFrames += 1;
+}
+
 /**
  * This is called 100ns before the actual simulation starts and it is used to
  * finalize the node setup and to reset the internal state of all the nodes.
@@ -321,11 +332,13 @@ finaliseSetup(struct sim_config &config)
           }
     }
 
-
-    /* Setting the BER */
-    Ptr<YanWifiPhy> phy = allNodes->Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
-      GetPhy()->GetObject<YansWifiPhy>();
-    phy->SetFrameMinBer(config.frameMinBer);
+    /* Setting the FER */
+    if (config.frameMinFer > 0)
+      {
+        Ptr<YansWifiPhy> phy = allNodes->Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
+          GetPhy()->GetObject<YansWifiPhy>();
+        phy->SetFrameMinFer(config.frameMinFer);
+      }
   }
 
   std::cout << "\n###Simulation parameters" << std::endl;
@@ -342,6 +355,7 @@ finaliseSetup(struct sim_config &config)
   std::cout << "-srResetMode: " << config.srResetMode << std::endl;
   std::cout << "-EIFSnoDIFS: " << config.EIFSnoDIFS << std::endl;
   std::cout << "-AckTimeout: " << config.ackTimeout << std::endl;
+  std::cout << "-frameMinFer: " << config.frameMinFer << std::endl;
 
   std::cout << "\n**WiFi protocol details:" << std::endl;
   Ptr<WifiMac> apMac = allNodes->Get (0)->GetDevice (0)->GetObject<WifiNetDevice> ()
@@ -391,6 +405,7 @@ main (int argc, char *argv[])
   bool srResetMode = false;
   uint32_t EIFSnoDIFS = 314; //µs
   uint32_t ackTimeout = 340; //µs
+  double frameMinFer = 0.0;
 
 
   CommandLine cmd;
@@ -413,6 +428,7 @@ main (int argc, char *argv[])
   cmd.AddValue ("srResetMode", "By default, schedules will be halved. Set true for Schedule Reset", srResetMode);
   cmd.AddValue ("EIFSnoDIFS", "IFS before retransmitting a frame", EIFSnoDIFS);
   cmd.AddValue ("AckTimeout", "Time that will timeout the DATA+ACK exchange", ackTimeout);
+  cmd.AddValue ("frameMinFer", "Frame error rate at PHY level", frameMinFer);
 
   cmd.Parse (argc,argv);
 
@@ -437,6 +453,7 @@ main (int argc, char *argv[])
   config.EIFSnoDIFS = EIFSnoDIFS;
   config.ackTimeout = ackTimeout;
   config.beaconInterval = NanoSeconds(0);
+  config.frameMinFer = frameMinFer;
 
   results.srAttempts = 0;
   results.srFails = 0;
@@ -447,6 +464,7 @@ main (int argc, char *argv[])
   results.txAttempts.assign (results.stas,0);
   results.sumTimeBetweenSxTx.assign (results.stas, NanoSeconds (0));
   results.timeOfPrevSxTx.assign (results.stas, NanoSeconds (0));
+  results.errorFrames = 0;
 
 
   // Check for valid number of csma or wifi nodes
@@ -493,7 +511,7 @@ main (int argc, char *argv[])
 
   
   /* Configuring channel characteristics */
-  
+
   YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
 
 
@@ -612,8 +630,8 @@ main (int argc, char *argv[])
         GetObject<RegularWifiMac> ()->GetDcaTxop ();
       Ptr<DcfManager> dcfManager = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
         GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
-
-      LogComponentEnable ("Config", LOG_LEVEL_ALL);
+      Ptr<YansWifiPhy> phy = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
+          GetPhy()->GetObject<YansWifiPhy>();
 
       if(tracing == true)
         {
@@ -626,6 +644,8 @@ main (int argc, char *argv[])
           dca->TraceConnect ("SrReductionAttempts", n.str (), MakeBoundCallback (&TraceSrAttempts, sr_stream, &results));
           dca->TraceConnect ("SrReductions", n.str (), MakeBoundCallback (&TraceSrReductions, sr_stream, &results));
           dca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
+
+          phy->TraceConnect ("FramesWithErrors", n.str (), MakeBoundCallback (&TraceErrorFrames, tx_stream, &results));
 
           dcfManager->TraceConnect ("LastTxDuration", n.str (), MakeBoundCallback (&TraceLastTxDuration, tx_stream));
         }

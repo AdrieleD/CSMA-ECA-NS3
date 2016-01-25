@@ -3,18 +3,20 @@ use List::Util qw(first max maxstr min minstr reduce shuffle sum);
 my $nMax = $ARGV[1];
 my $nMin = $ARGV[0];
 my $rep = 5;
-my $verbose = false;
-my $tracing = false;
 my $totalSimTime = 20;
 my $seed = -1; #Keep -1 to leave unchanged
+my $stickiness = 0;
+my $EIFSnoDIFS = 314;
+my $ackTimeout = 340;
+my $frameMinFer = 10;
+
+my $verbose = false;
+my $tracing = false;
 my $ECA = false;
 my $hyst = false;
-my $stickiness = 0;
 my $dynStick = false;
 my $bitmap = false;
 my $srConservative = false;
-my $EIFSnoDIFS = 314;
-my $ackTimeout = 340;
 my $srResetMode = false;
 my @command = './waf --cwd=tmp/ --run "scratch/wlan';
 
@@ -55,7 +57,8 @@ if( $nMax > $nMin ){
 				--srConservative=$srConservative
 				--srResetMode=$srResetMode
 				--EIFSnoDIFS=$EIFSnoDIFS
-				--AckTimeout=$ackTimeout\"");
+				--AckTimeout=$ackTimeout
+				--frameMinFer=$frameMinFer\"");
 			my @outPut = "@command @addition";
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
@@ -81,7 +84,8 @@ if( $nMax > $nMin ){
 				--srConservative=$srConservative
 				--srResetMode=$srResetMode
 				--EIFSnoDIFS=$EIFSnoDIFS
-				--AckTimeout=$ackTimeout\"");
+				--AckTimeout=$ackTimeout
+				--frameMinFer=$frameMinFer\"");
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
 			system(@outPut);
