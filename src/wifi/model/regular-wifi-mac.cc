@@ -174,9 +174,11 @@ RegularWifiMac::GetDcaTxop () const
 }
 
 Ptr<DcfManager>
-RegularWifiMac::GetDcfManager () const{
+RegularWifiMac::GetDcfManager () const
+{
   return m_dcfManager;
 }
+
 
 Ptr<EdcaTxopN>
 RegularWifiMac::GetVOQueue () const

@@ -62,18 +62,21 @@ struct sim_config{
   bool srResetMode;
   uint32_t EIFSnoDIFS;
   uint32_t ackTimeout;
+  Time beaconInterval;
 };
 struct sim_config config;
 
 struct sim_results{
   uint32_t stas;
-  uint64_t sxTx;
-  uint64_t failTx;
-  uint64_t txAttempts;
+  std::vector<uint64_t> sxTx;
+  std::vector<uint64_t> failTx;
+  std::vector<uint64_t> txAttempts;
   uint64_t lastCollision;
   uint32_t srAttempts;
   uint32_t srReductions;
   uint32_t srFails;
+  std::vector<Time> sumTimeBetweenSxTx;
+  std::vector<Time> timeOfPrevSxTx;
 };
 struct sim_results results;
 
@@ -88,9 +91,13 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
   double total_rx_packets = 0.0;
 
   // Aggregated stats from the DcaTxop of each node
-  double col = results->failTx; 
-  double attempts = results->txAttempts;
-  double sx = results->sxTx;
+  double col = 0;
+  double attempts = 0;
+  double sx = 0;
+  std::vector<Time> timeBetweenSxTx;
+  timeBetweenSxTx.assign (results->stas, NanoSeconds(0));
+  double overallTimeBetweenSxTx = 0.0;
+  NS_ASSERT (results->stas = config.servers.GetN());
 
   for (uint32_t i = 0; i < config.servers.GetN(); i++)
     {
@@ -98,6 +105,11 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
       rx_packets = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
       total_rx_packets += rx_packets;
       rx_bits += (rx_packets * config.payload * 8.0);
+      col += results->failTx.at (i);
+      attempts += results->txAttempts.at (i);
+      sx += results->sxTx.at (i);
+      if (results->sxTx.at (i) > 0)
+        timeBetweenSxTx.at (i) = NanoSeconds ((results->sumTimeBetweenSxTx.at (i).GetNanoSeconds ()) / results->sxTx.at (i));
       // std::cout << i << " " << rx_packets << " " << config.servers.GetN() << std::endl;
     }
   // std::cout << "Rx bit according to the TCP servers: " << total_rx_packets << std::endl;
@@ -114,7 +126,7 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
   std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs.\n" << std::endl;
   uint64_t index = attempts - (col + sx);
   if (index != 0)
-    std::cout << "\tSomething is wrong with couting the results of tx attempts (" << index << "): failTx: " << results->failTx 
+    std::cout << "\t-Something is wrong with couting the results of tx attempts (" << index << "): failTx: " << col 
       << " " << std::endl;
 
   if (config.bitmap)
@@ -123,8 +135,23 @@ printResults(struct sim_config &config, Ptr<OutputStreamWrapper> stream, double 
         std::cout << "-Schedule Reset reductions: " << results->srReductions << std::endl;
     }
 
+  std::cout << "-Average time between successful transmissions: " << std::endl;
+  for (int i = 0; i < config.servers.GetN(); i++)
+    {
+      std::cout << "\tSta-" << i << ": " << timeBetweenSxTx.at (i).GetSeconds () << " s" << std::endl;
+      overallTimeBetweenSxTx += timeBetweenSxTx.at (i).GetSeconds ();
+    }
+
+  /* The process file is:
+  1. Nodes
+  2. Average Aggregated Throughpout
+  3. Total Fraction of failled transmissions
+  4. Average Aggregated Time Between Successful Transmissions
+  */
+  
   *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6)
-    << rx_bits / simulationDuration.GetSeconds() << " " << col/attempts << std::endl;
+    << rx_bits / simulationDuration.GetSeconds() << " " << col/attempts << " " << overallTimeBetweenSxTx/config.servers.GetN()
+    << std::endl;
 }
 
 void
@@ -142,7 +169,7 @@ TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std:
   uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
-  results->failTx++;
+  results->failTx.at (std::stoi (context)) ++;
   results->lastCollision = Simulator::Now().GetMicroSeconds();
 }
 
@@ -150,8 +177,15 @@ void
 TraceSuccesses(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  uint64_t delta = 0;
   *stream->GetStream () << m_now << " " << context << " " << SXTX << " " << newValue << std::endl; 
-  results->sxTx++;
+  results->sxTx.at (std::stoi (context)) ++;
+
+  if (newValue == 1)
+    results->timeOfPrevSxTx.at (std::stoi (context)) = NanoSeconds (m_now);
+  delta = (m_now - results->timeOfPrevSxTx.at (std::stoi (context)).GetNanoSeconds ());
+  results->sumTimeBetweenSxTx.at (std::stoi (context)) += NanoSeconds (delta);
+  results->timeOfPrevSxTx.at (std::stoi (context)) = NanoSeconds (m_now);
 }
 
 void
@@ -159,7 +193,7 @@ TraceTxAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, st
   uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   *stream->GetStream () << m_now << " " << context << " " << TX << " " << newValue << std::endl; 
-  results->txAttempts++;
+  results->txAttempts.at (std::stoi (context)) ++;
 }
 
 void
@@ -288,10 +322,10 @@ finaliseSetup(struct sim_config &config)
     }
 
 
-    /* Setting the BER
+    /* Setting the BER */
     Ptr<YanWifiPhy> phy = allNodes->Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
       GetPhy()->GetObject<YansWifiPhy>();
-    phy->SetFrameMinBer(config.frameMinBer);*/
+    phy->SetFrameMinBer(config.frameMinBer);
   }
 
   std::cout << "\n###Simulation parameters" << std::endl;
@@ -311,9 +345,10 @@ finaliseSetup(struct sim_config &config)
 
   std::cout << "\n**WiFi protocol details:" << std::endl;
   Ptr<WifiMac> apMac = allNodes->Get (0)->GetDevice (0)->GetObject<WifiNetDevice> ()
-          ->GetMac ();
+    ->GetMac ();
   Ptr<WifiMac> staMac = allNodes->Get (1)->GetDevice (0)->GetObject<WifiNetDevice> ()
-          ->GetMac ();
+    ->GetMac ();
+
   std::cout << "-Slot duration: " << staMac->GetSlot ().GetMicroSeconds () << std::endl;
   std::cout << "\t-For the Ap: " << apMac->GetSlot ().GetMicroSeconds () << std::endl;
   std::cout << "-SIFS: " << staMac->GetSifs ().GetMicroSeconds () << std::endl;
@@ -322,9 +357,6 @@ finaliseSetup(struct sim_config &config)
   std::cout << "\t-For the Ap: " << apMac->GetEifsNoDifs ().GetMicroSeconds () << std::endl;
   std::cout << "-Ack timeout: " << staMac->GetAckTimeout  ().GetMicroSeconds () << std::endl;
   std::cout << "\t-For the Ap: " << apMac->GetAckTimeout  ().GetMicroSeconds () << std::endl;
-
-
-
 }
 
 int 
@@ -404,14 +436,17 @@ main (int argc, char *argv[])
   config.srResetMode = srResetMode;
   config.EIFSnoDIFS = EIFSnoDIFS;
   config.ackTimeout = ackTimeout;
+  config.beaconInterval = NanoSeconds(0);
 
-  results.sxTx = 0;
-  results.failTx = 0;
-  results.txAttempts = 0;
   results.srAttempts = 0;
   results.srFails = 0;
   results.srReductions = 0;
   results.stas = nWifi - 1;
+  results.sxTx.assign (results.stas,0);
+  results.failTx.assign (results.stas,0);
+  results.txAttempts.assign (results.stas,0);
+  results.sumTimeBetweenSxTx.assign (results.stas, NanoSeconds (0));
+  results.timeOfPrevSxTx.assign (results.stas, NanoSeconds (0));
 
 
   // Check for valid number of csma or wifi nodes
@@ -456,7 +491,14 @@ main (int argc, char *argv[])
       return 1;
     }
 
+  
+  /* Configuring channel characteristics */
+  
   YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
+
+
+
+
   YansWifiPhyHelper phy = YansWifiPhyHelper::Default ();
   phy.SetChannel (channel.Create ());
 
@@ -570,6 +612,8 @@ main (int argc, char *argv[])
         GetObject<RegularWifiMac> ()->GetDcaTxop ();
       Ptr<DcfManager> dcfManager = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
         GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+
+      LogComponentEnable ("Config", LOG_LEVEL_ALL);
 
       if(tracing == true)
         {

@@ -240,11 +240,10 @@ public:
 
 
 
-  //Allow Getting the DcaTxop
-  /**
+  /* Allow Getting the DcaTxop
    * Accessor for the DCF object
    *
-   * \return a smart pointer to DcaTxop
+   * \return a smart pointer
    */
   Ptr<DcaTxop> GetDcaTxop (void) const;
   Ptr<DcfManager> GetDcfManager (void) const;
@@ -261,7 +260,6 @@ protected:
   Ptr<MacLow> m_low;        //!< MacLow (RTS, CTS, DATA, ACK etc.)
   Ptr<DcfManager> m_dcfManager; //!< DCF manager (access to channel)
   Ptr<WifiPhy> m_phy;       //!< Wifi PHY
-
   Ptr<WifiRemoteStationManager> m_stationManager; //!< Remote station manager (rate control, RTS/CTS/fragmentation thresholds etc.)
 
   ForwardUpCallback m_forwardUp; //!< Callback to forward packet up the stack
@@ -282,17 +280,12 @@ protected:
   channel access function */
   EdcaQueues m_edca;
 
-
-
   // *
   //  * Accessor for the DCF object
   //  *
   //  * \return a smart pointer to DcaTxop
    
   // Ptr<DcaTxop> GetDcaTxop (void) const;
-
-
-
 
   /**
    * Accessor for the AC_VO channel access function

@@ -85,4 +85,4 @@ foreach my $key ( keys %fails )
   $collisions += $fails{$key};
 }
 
-print("-Collisions seen as an outside observer: $collisions\n");
+print("-Collisions seen as an outside observer: $collisions\n\n");

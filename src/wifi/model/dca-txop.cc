@@ -641,8 +641,8 @@ DcaTxop::MissedCts (void)
 void
 DcaTxop::GotAck (double snr, WifiMode txMode)
 {
-  NS_LOG_FUNCTION (this << snr << txMode);
   m_successes++;
+  NS_LOG_FUNCTION (this << snr << txMode);
   if (!NeedFragmentation ()
       || IsLastFragment ())
     {
@@ -671,7 +671,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
               if (m_scheduleRecentlyReduced == true)
                 KeepScheduleReductionIfAny ();
               if (m_srActivationThreshold == 0) 
-                SetScheduleResetActivationThreshold ( (m_dcf->GetCwMax () + 1) / ( (m_dcf->GetCw () + 1) / 2) );
+                SetScheduleResetActivationThreshold ( (m_dcf->GetCwMax ()+ 1) ) / ( (m_dcf->GetCw () + 1) );
 
               NS_LOG_DEBUG ("Schedule Reset. Sx #" << GetConsecutiveSuccesses ()
                 << " activation thresh: " << GetScheduleResetActivationThreshold ());
@@ -1047,7 +1047,7 @@ DcaTxop::SetScheduleResetThreshold (void)
 
   if(m_scheduleResetConservative)
     {
-      m_scheduleResetThreshold = ceil ((m_dcf->GetCwMax () + 1) / 
+      m_scheduleResetThreshold = ceil (((m_dcf->GetCwMax () + 1) / 2) / 
         ( deterministicBackoff (m_dcf->GetCw ())));
     }
   else
