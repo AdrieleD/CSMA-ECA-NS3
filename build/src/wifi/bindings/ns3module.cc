@@ -11957,17 +11957,18 @@ _wrap_PyNs3WifiModeFactory_CreateWifiMcs(PyNs3WifiModeFactory *PYBINDGEN_UNUSED(
     int bandwidth;
     int dataRate;
     ns3::WifiModulationClass modClass;
-    const char *keywords[] = {"uniqueName", "mcsValue", "bandwidth", "dataRate", "modClass", NULL};
+    ns3::WifiCodeRate codingRate;
+    const char *keywords[] = {"uniqueName", "mcsValue", "bandwidth", "dataRate", "modClass", "codingRate", NULL};
     PyNs3WifiMode *py_WifiMode;
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "s#ii", (char **) keywords, &uniqueName, &uniqueName_len, &mcsValue, &bandwidth, &dataRate, &modClass)) {
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "s#ii", (char **) keywords, &uniqueName, &uniqueName_len, &mcsValue, &bandwidth, &dataRate, &modClass, &codingRate)) {
         return NULL;
     }
     if (mcsValue > 0xff) {
         PyErr_SetString(PyExc_ValueError, "Out of range");
         return NULL;
     }
-    ns3::WifiMode retval = ns3::WifiModeFactory::CreateWifiMcs(std::string(uniqueName, uniqueName_len), mcsValue, bandwidth, dataRate, modClass);
+    ns3::WifiMode retval = ns3::WifiModeFactory::CreateWifiMcs(std::string(uniqueName, uniqueName_len), mcsValue, bandwidth, dataRate, modClass, codingRate);
     py_WifiMode = PyObject_New(PyNs3WifiMode, &PyNs3WifiMode_Type);
     py_WifiMode->flags = PYBINDGEN_WRAPPER_FLAG_NONE;
     py_WifiMode->obj = new ns3::WifiMode(retval);

@@ -251,6 +251,11 @@ public:
    *        must be unique accross _all_ instances.
    * \param mcsValue the mcs value
    * \param modClass the class of modulation
+   * \param codingRate if convolutional coding is used for this rate
+   *        then this parameter specifies the convolutional coding rate
+   *        used. If there is no explicit convolutional coding step (e.g.,
+   *        for DSSS rates) then the caller should set this parameter to
+   *        WIFI_CODE_RATE_UNCODED.
    *
    * \return WifiMode
    *
@@ -260,7 +265,8 @@ public:
                                  uint8_t mcsValue,
                                  uint32_t bandwidth,
                                  uint32_t dataRate,
-                                 enum WifiModulationClass modClass);
+                                 enum WifiModulationClass modClass,
+                                 enum WifiCodeRate codingRate);
 
 
 private:

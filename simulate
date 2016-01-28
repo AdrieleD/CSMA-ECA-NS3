@@ -8,7 +8,7 @@ my $seed = -1; #Keep -1 to leave unchanged
 my $stickiness = 0;
 my $EIFSnoDIFS = 314;
 my $ackTimeout = 340;
-my $frameMinFer = 10;
+my $frameMinFer = 0.1;
 
 my $verbose = false;
 my $tracing = false;

@@ -253,6 +253,7 @@ WifiMode::GetCodeRate (uint8_t nss) const
     {
       NS_ASSERT (nss <= 4);
       NS_ASSERT ((item->mcsValue - (8 * (nss - 1))) >= 0 || (item->mcsValue - (8 * (nss - 1))) <= 7);
+  
       switch (item->mcsValue - (8 * (nss - 1)))
         {
         case 0:
@@ -488,7 +489,8 @@ WifiModeFactory::CreateWifiMcs (std::string uniqueName,
                                 uint8_t mcsValue,
                                 uint32_t bandwidth,
                                 uint32_t dataRate,
-                                enum WifiModulationClass modClass)
+                                enum WifiModulationClass modClass,
+                                enum WifiCodeRate codingRate)
 {
   WifiModeFactory *factory = GetFactory ();
   uint32_t uid = factory->AllocateUid (uniqueName);
@@ -502,9 +504,10 @@ WifiModeFactory::CreateWifiMcs (std::string uniqueName,
   NS_ASSERT (modClass == WIFI_MOD_CLASS_HT || modClass == WIFI_MOD_CLASS_VHT);
 
   item->mcsValue = mcsValue;
+  item->codingRate = codingRate;
   //fill unused items with dummy values
   item->constellationSize = 0;
-  item->codingRate = WIFI_CODE_RATE_UNDEFINED;
+  // item->codingRate = WIFI_CODE_RATE_UNDEFINED;
   item->isMandatory = false;
 
   return WifiMode (uid);

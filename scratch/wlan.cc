@@ -23,7 +23,7 @@
 #include "ns3/wifi-module.h"
 #include "ns3/mobility-module.h"
 #include "ns3/internet-module.h"
- #include "ns3/ipv4-global-routing-helper.h"
+#include "ns3/ipv4-global-routing-helper.h"
 
 //Just a simple WLAN with address base 10.0.0.1/24 and one AP.
 
@@ -513,10 +513,6 @@ main (int argc, char *argv[])
   /* Configuring channel characteristics */
 
   YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
-
-
-
-
   YansWifiPhyHelper phy = YansWifiPhyHelper::Default ();
   phy.SetChannel (channel.Create ());
 
@@ -665,12 +661,12 @@ main (int argc, char *argv[])
   Simulator::Stop (Seconds (startClientApp + totalSimtime));
 
   //Finilise setup
-  Simulator::Schedule(Seconds(startClientApp - 0.000009), finaliseSetup, config);
+  Simulator::Schedule (Seconds(startClientApp - 0.000009), finaliseSetup, config);
 
   //Last call to the printResults function
-  Simulator::Schedule(Seconds(startClientApp  + totalSimtime - 0.000009), printResults, 
+  Simulator::Schedule (Seconds(startClientApp  + totalSimtime - 0.000009), printResults, 
     config, results_stream, startClientApp, &results);
-  Simulator::Schedule(Seconds(startClientApp  + totalSimtime - 0.000009), processFinal, resultsName);
+  Simulator::Schedule (Seconds(startClientApp  + totalSimtime - 0.000009), processFinal, resultsName);
   Simulator::Run ();
   Simulator::Destroy ();
   return 0;
