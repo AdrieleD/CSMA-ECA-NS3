@@ -247,6 +247,13 @@ public:
    */
   Ptr<DcaTxop> GetDcaTxop (void) const;
   Ptr<DcfManager> GetDcfManager (void) const;
+    /**
+   * Accessor for the AC_BE channel access function
+   *
+   * \return a smart pointer to EdcaTxopN
+   */
+  Ptr<EdcaTxopN> GetBEQueue (void) const;
+
   void ConfigureCw (uint32_t cwmin, uint32_t cwmax);
 
 
@@ -299,17 +306,18 @@ protected:
    * \return a smart pointer to EdcaTxopN
    */
   Ptr<EdcaTxopN> GetVIQueue (void) const;
-  /**
-   * Accessor for the AC_BE channel access function
-   *
-   * \return a smart pointer to EdcaTxopN
-   */
-  Ptr<EdcaTxopN> GetBEQueue (void) const;
-  /**
-   * Accessor for the AC_BK channel access function
-   *
-   * \return a smart pointer to EdcaTxopN
-   */
+  // *
+  //  * Accessor for the AC_BE channel access function
+  //  *
+  //  * \return a smart pointer to EdcaTxopN
+   
+  // Ptr<EdcaTxopN> GetBEQueue (void) const;
+  
+  // *
+  //  * Accessor for the AC_BK channel access function
+  //  *
+  //  * \return a smart pointer to EdcaTxopN
+   
   Ptr<EdcaTxopN> GetBKQueue (void) const;
 
   /**

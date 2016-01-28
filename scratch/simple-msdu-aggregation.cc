@@ -53,19 +53,70 @@ struct sim_config
 {
   uint32_t nWifi;
   uint64_t simulationTime;
-  uint32_t nMsdus;
+  // uint32_t nMsdus;
+  uint32_t payloadSize;
   NodeContainer staNodes;
   NodeContainer apNodes;
   NodeContainer allNodes;
   ApplicationContainer servers;
+  bool fairShare;
 };
 struct sim_config config;
 
 void
 finishSetup (struct sim_config &config)
 {
-  // Ptr<EdcaTxopN> BK_EdcaTxop = 
+  NodeContainer allNodes (config.allNodes);
+  uint32_t Cwmin, Cwmax;
+  /* Last index in allNodes container is the AP */
+  for(uint32_t i = 0; i < allNodes.GetN ()-1; i++){
+    for(uint32_t j = 0; j < allNodes.GetN ()-1; j++){
+      if(i == j)
+        continue;
 
+      /* Configuring the ARP entries to avoid control traffic */
+      Address mac = allNodes.Get (j)->GetDevice (0)->GetAddress ();
+      /* Ipv4 is the forwarding table class */
+      Ipv4Address ip = allNodes.Get (j)->GetObject<Ipv4> ()->GetAddress (1,0).GetLocal ();
+      Ptr<ArpCache> arpCache = allNodes.Get (i)->GetObject<Ipv4L3Protocol> ()->GetInterface (1)->GetArpCache ();
+
+      if (arpCache == NULL)
+        arpCache = CreateObject<ArpCache>( );
+      arpCache->SetAliveTimeout (Seconds (config.simulationTime + 1));
+      ArpCache::Entry *entry = arpCache->Add (ip);
+      entry->MarkWaitReply(0);
+      entry->MarkAlive(mac);
+    }
+
+    /* Configuring the clients */
+    Ptr<EdcaTxopN> dca = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
+      GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
+
+    Cwmin = dca->GetMinCw ();
+    Cwmax = dca->GetMaxCw ();
+    if (config.fairShare)
+      dca->SetFairShare ();
+
+  }
+  std::cout << "- Cwmin: " << Cwmin << std::endl;
+  std::cout << "- Cwmax: " << Cwmax << std::endl;
+  std::cout << "- FairShare: " << config.fairShare << std::endl;
+}
+
+void
+results (struct sim_config &config)
+{
+  double throughput = 0.0;
+  NS_ASSERT (config.servers.GetN () == config.nWifi);
+
+  std::cout << "- Results for " << config.servers.GetN () << " clients." << std::endl;
+
+  for (uint32_t i = 0; i < config.servers.GetN (); i++)
+    {
+      uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
+      throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
+    }
+  std::cout << "Throughput: " << throughput << " Mbit/s" << '\n';
 }
 
 
@@ -74,11 +125,11 @@ NS_LOG_COMPONENT_DEFINE ("SimpleMsduAggregation");
 
 int main (int argc, char *argv[])
 {
-  uint32_t nWifi = 1;
+  uint32_t nWifi = 2;
   uint32_t payloadSize = 1470; //bytes
-  uint64_t simulationTime = 10; //seconds
-  uint32_t nMsdus = 2;
-  uint32_t apNMsdus = 1;
+  uint64_t simulationTime = 3; //seconds
+  // uint32_t nMsdus = 1;
+  // uint32_t apNMsdus = 1;
   bool enableRts = false;
   uint32_t txRate = 260;
   uint32_t destPort = 10000;
@@ -86,9 +137,11 @@ int main (int argc, char *argv[])
   std::string dataRate ("HtMcs7");
   std::string controlRate ("HtMcs7");
   std::string ackMode ("HtMcs7");
+  bool fairShare = true;
+  bool verbose = true;
 
   CommandLine cmd;
-  cmd.AddValue ("nMsdus", "Number of aggregated MSDUs", nMsdus); //number of aggregated MSDUs specified by the user
+  // cmd.AddValue ("nMsdus", "Number of aggregated MSDUs", nMsdus); //number of aggregated MSDUs specified by the user
   cmd.AddValue ("payloadSize", "Payload size in bytes", payloadSize);
   cmd.AddValue ("enableRts", "Enable RTS/CTS", enableRts);
   cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
@@ -96,7 +149,9 @@ int main (int argc, char *argv[])
 
   config.nWifi = nWifi;
   config.simulationTime = simulationTime;
-  config.nMsdus = nMsdus;
+  // config.nMsdus = nMsdus;
+  config.payloadSize = payloadSize;
+  config.fairShare = fairShare;
 
   if (!enableRts)
     {
@@ -117,8 +172,8 @@ int main (int argc, char *argv[])
 
   config.staNodes.Add (wifiStaNode);
   config.apNodes.Add (wifiApNode);
-  config.allNodes.Add (wifiApNode);
   config.allNodes.Add (wifiStaNode);
+  config.allNodes.Add (wifiApNode);
 
 
   YansWifiChannelHelper channel = YansWifiChannelHelper::Default ();
@@ -143,8 +198,7 @@ int main (int argc, char *argv[])
                "Ssid", SsidValue (ssid),
                "ActiveProbing", BooleanValue (false));
 
-  mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
-                              "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
+  mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator");
 
   NetDeviceContainer staDevice;
   staDevice = wifi.Install (phy, mac, wifiStaNode);
@@ -152,8 +206,7 @@ int main (int argc, char *argv[])
   mac.SetType ("ns3::ApWifiMac",
                "Ssid", SsidValue (ssid));
 
-  mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
-                              "MaxAmsduSize", UintegerValue (apNMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
+  mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator");
 
   NetDeviceContainer apDevice;
   apDevice = wifi.Install (phy, mac, wifiApNode);
@@ -202,7 +255,7 @@ int main (int argc, char *argv[])
       serverApp.Stop (Seconds (simulationTime + 1));
       config.servers.Add (serverApp);
 
-      UdpClientHelper myClient (StaInterface.GetAddress (0), destPort + i);
+      UdpClientHelper myClient (ApInterface.GetAddress (0), destPort + i);
       myClient.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
       myClient.SetAttribute ("Interval", TimeValue (dataGenerationRate)); //packets/s
       myClient.SetAttribute ("PacketSize", UintegerValue (payloadSize));
@@ -212,20 +265,20 @@ int main (int argc, char *argv[])
       clientApp.Stop (Seconds (simulationTime + 1));
     }
 
+  if (verbose)
+    {
+      LogComponentEnable ("EdcaTxopN", LOG_LEVEL_DEBUG);
+    }
+
   Simulator::Stop (Seconds (simulationTime + 1));
 
-  Simulator::Schedule (Seconds (0.999), finishSetup, config);
+  Simulator::Schedule (Seconds (0.999999), finishSetup, config);
+  Simulator::Schedule (Seconds (simulationTime + 0.999999), results, config);
 
   Simulator::Run ();
   Simulator::Destroy ();
 
-  double throughput = 0.0;
-  for (uint32_t i = 0; i < config.servers.GetN (); i++)
-    {
-      uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
-      throughput += totalPacketsThrough * payloadSize * 8 / (simulationTime * 1000000.0);
-    }
-  std::cout << "Throughput: " << throughput << " Mbit/s" << '\n';
+  
 
   return 0;
 }
