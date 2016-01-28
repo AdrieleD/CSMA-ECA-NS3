@@ -3,7 +3,7 @@ use List::Util qw(first max maxstr min minstr reduce shuffle sum);
 my $nMax = $ARGV[1];
 my $nMin = $ARGV[0];
 my $rep = 1;
-my $simulationTime = 10;
+my $simulationTime = 5;
 my $seed = -1; #Keep -1 to leave unchanged
 my $stickiness = 0;
 

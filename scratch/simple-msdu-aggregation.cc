@@ -50,6 +50,13 @@
 // Packets in this simulation aren't marked with a QosTag so they are considered
 // belonging to BestEffort Access Class (AC_BE).
 
+//Defining log codes for interesting metrics
+ #define SXTX 1 //successes
+ #define FAILTX 2 //failures
+ #define TX 3 //attempts
+ #define BO 4 //assigned backoff
+ #define txDUR 5 //last Tx duration
+
 using namespace ns3;
 
 struct sim_config
@@ -71,6 +78,21 @@ struct sim_config
   bool fairShare;
 };
 struct sim_config config;
+
+struct sim_results{
+  uint32_t stas;
+  std::vector<uint64_t> sxTx;
+  std::vector<uint64_t> failTx;
+  std::vector<uint64_t> txAttempts;
+  uint64_t lastCollision;
+  uint32_t srAttempts;
+  uint32_t srReductions;
+  uint32_t srFails;
+  std::vector<Time> sumTimeBetweenSxTx;
+  std::vector<Time> timeOfPrevSxTx;
+  uint64_t errorFrames;
+};
+struct sim_results results;
 
 void
 finishSetup (struct sim_config &config)
@@ -118,25 +140,53 @@ finishSetup (struct sim_config &config)
     }
 
   }
+  std::cout << "- nWifi: " << config.nWifi << std::endl;
   std::cout << "- Cwmin: " << Cwmin << std::endl;
   std::cout << "- Cwmax: " << Cwmax << std::endl;
+  std::cout << "- CSMA/ECA: " << config.eca << std::endl;
+  std::cout << "- Hysteresis: " << config.hysteresis << std::endl;
+  std::cout << "\t- Stickiness: " << config.stickiness << std::endl;
   std::cout << "- FairShare: " << config.fairShare << std::endl;
+
 }
 
 void
-results (struct sim_config &config, Ptr<OutputStreamWrapper> stream)
+finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results)
 {
   double throughput = 0.0;
+  double col = 0;
+  double attempts = 0;
+  double sx = 0;
+  std::vector<Time> timeBetweenSxTx;
+  timeBetweenSxTx.assign (results->stas, NanoSeconds(0));
+  double overallTimeBetweenSxTx = 0.0;
+
   NS_ASSERT (config.servers.GetN () == config.nWifi);
 
-  std::cout << "- Results for " << config.servers.GetN () << " clients." << std::endl;
+  std::cout << "\n- Results for " << config.servers.GetN () << " clients." << std::endl;
 
   for (uint32_t i = 0; i < config.servers.GetN (); i++)
     {
       uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
       throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
+
+      col += results->failTx.at (i);
+      attempts += results->txAttempts.at (i);
+      sx += results->sxTx.at (i);
+      if (results->sxTx.at (i) > 0)
+        timeBetweenSxTx.at (i) = NanoSeconds ((results->sumTimeBetweenSxTx.at (i).GetNanoSeconds ()) / results->sxTx.at (i));
     }
-  std::cout << "Throughput: " << throughput << " Mbit/s" << '\n';
+  std::cout << "- Throughput: " << throughput << " Mbit/s" << '\n';
+  double colFrac = 0;
+  if (col > 0) colFrac = col/attempts;
+  std::cout << "-Fraction of tx resulting in collisions: " << colFrac << ". " << attempts << " attempts" << std::endl;
+  std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs.\n" << std::endl;
+  std::cout << "-Average time between successful transmissions: " << std::endl;
+  for (int i = 0; i < config.servers.GetN(); i++)
+    {
+      std::cout << "\tSta-" << i << ": " << timeBetweenSxTx.at (i).GetSeconds () << " s" << std::endl;
+      overallTimeBetweenSxTx += timeBetweenSxTx.at (i).GetSeconds ();
+    }
 
   /* Writing to file */
   *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6) << throughput << std::endl;
@@ -150,6 +200,53 @@ process (std::string &dataFileName)
   system(command.c_str());
 }
 
+/* Trace Callbacks */
+
+void
+TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue){
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
+  results->failTx.at (std::stoi (context)) ++;
+  results->lastCollision = Simulator::Now().GetMicroSeconds();
+}
+
+void
+TraceSuccesses(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue){
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  uint64_t delta = 0;
+  *stream->GetStream () << m_now << " " << context << " " << SXTX << " " << newValue << std::endl; 
+  results->sxTx.at (std::stoi (context)) ++;
+
+  if (newValue == 1)
+    results->timeOfPrevSxTx.at (std::stoi (context)) = NanoSeconds (m_now);
+  delta = (m_now - results->timeOfPrevSxTx.at (std::stoi (context)).GetNanoSeconds ());
+  results->sumTimeBetweenSxTx.at (std::stoi (context)) += NanoSeconds (delta);
+  results->timeOfPrevSxTx.at (std::stoi (context)) = NanoSeconds (m_now);
+}
+
+void
+TraceTxAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue){
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << TX << " " << newValue << std::endl; 
+  results->txAttempts.at (std::stoi (context)) ++;
+}
+
+void
+TraceAssignedBackoff(Ptr<OutputStreamWrapper> stream, std::string context, uint32_t oldValue, uint32_t newValue){
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  if(newValue != 0xFFFFFFFF)
+    *stream->GetStream () << m_now << " " << context << " " << BO << " " << newValue << std::endl; 
+}
+
+void
+TraceLastTxDuration(Ptr<OutputStreamWrapper> stream, std::string context, uint64_t oldValue, uint64_t newValue){
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  if(newValue != 0xFFFFFFFFFFFFFFFF)
+    *stream->GetStream () << m_now << " " << context << " " << txDUR << " " << newValue << std::endl; 
+}
 
 
 NS_LOG_COMPONENT_DEFINE ("SimpleMsduAggregation");
@@ -176,6 +273,8 @@ int main (int argc, char *argv[])
   int32_t seed = -1;
 
   std::string resultsName ("results2.log");
+  std::string txLog ("tx.log");
+  std::string backoffLog ("detBackoff.log");
 
   CommandLine cmd;
   // cmd.AddValue ("nMsdus", "Number of aggregated MSDUs", nMsdus); //number of aggregated MSDUs specified by the user
@@ -204,6 +303,17 @@ int main (int argc, char *argv[])
   config.bitmap = bitmap;
   config.dynStick = dynStick;
 
+  results.srAttempts = 0;
+  results.srFails = 0;
+  results.srReductions = 0;
+  results.stas = nWifi;
+  results.sxTx.assign (results.stas,0);
+  results.failTx.assign (results.stas,0);
+  results.txAttempts.assign (results.stas,0);
+  results.sumTimeBetweenSxTx.assign (results.stas, NanoSeconds (0));
+  results.timeOfPrevSxTx.assign (results.stas, NanoSeconds (0));
+  results.errorFrames = 0;
+
   if (!enableRts)
     {
       Config::SetDefault ("ns3::WifiRemoteStationManager::RtsCtsThreshold", StringValue ("999999"));
@@ -222,6 +332,8 @@ int main (int argc, char *argv[])
   /* Creating the log streams */
   AsciiTraceHelper asciiTraceHelper;
   Ptr<OutputStreamWrapper> results_stream = asciiTraceHelper.CreateFileStream (resultsName, __gnu_cxx::ios_base::app);
+  Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream (txLog);
+  Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
 
   NodeContainer wifiStaNode;
   wifiStaNode.Create (nWifi);
@@ -329,10 +441,35 @@ int main (int argc, char *argv[])
       LogComponentEnable ("EdcaTxopN", LOG_LEVEL_DEBUG);
     }
 
+  /* Connecting the trace sources to their respective sinks */
+  for(uint32_t i = 0; i < config.allNodes.GetN () - 1; i++)
+    {
+      std::ostringstream n;
+      Ptr<EdcaTxopN> dca = config.allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
+      Ptr<DcfManager> dcfManager = config.allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+      // Ptr<YansWifiPhy> phy = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
+      //     GetPhy()->GetObject<YansWifiPhy>();
+
+      n << i;
+      dca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results));
+      dca->TraceConnect ("TxSuccesses", n.str (), MakeBoundCallback (&TraceSuccesses, tx_stream, &results));
+      dca->TraceConnect ("TxAttempts", n.str (), MakeBoundCallback (&TraceTxAttempts, tx_stream, &results));
+      dca->TraceConnect ("BackoffCounter", n.str (), MakeBoundCallback (&TraceAssignedBackoff, backoff_stream));
+      
+      // dca->TraceConnect ("Bitmap", n.str (), MakeBoundCallback (&TraceEcaBitmap, bitmap_stream));
+      // dca->TraceConnect ("SrReductionAttempts", n.str (), MakeBoundCallback (&TraceSrAttempts, sr_stream, &results));
+      // dca->TraceConnect ("SrReductions", n.str (), MakeBoundCallback (&TraceSrReductions, sr_stream, &results));
+      // dca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
+
+      // phy->TraceConnect ("FramesWithErrors", n.str (), MakeBoundCallback (&TraceErrorFrames, tx_stream, &results));
+
+      dcfManager->TraceConnect ("LastTxDuration", n.str (), MakeBoundCallback (&TraceLastTxDuration, tx_stream));
+    }
+
   Simulator::Stop (Seconds (simulationTime + 1));
 
   Simulator::Schedule (Seconds (0.999999), finishSetup, config);
-  Simulator::Schedule (Seconds (simulationTime + 0.999999), results, config, results_stream);
+  Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results);
   Simulator::Schedule (Seconds (simulationTime + 0.999999), process, resultsName);
 
   Simulator::Run ();

@@ -34,6 +34,9 @@
 #include "block-ack-manager.h"
 #include <map>
 #include <list>
+//Adding the capability of functioning as a trace source
+#include "ns3/traced-value.h"
+#include "ns3/trace-source-accessor.h"
 
 namespace ns3 {
 
@@ -565,6 +568,10 @@ private:
 
   bool m_fairShare;
   uint16_t m_fsAggregation;
+  TracedValue<uint64_t> m_failures;
+  TracedValue<uint64_t> m_successes;
+  TracedValue<uint64_t> m_txAttempts;
+  TracedValue<uint32_t> m_boCounter;
 };
 
 } //namespace ns3

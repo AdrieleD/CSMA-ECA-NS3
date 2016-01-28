@@ -247,6 +247,18 @@ EdcaTxopN::GetTypeId (void)
                    PointerValue (),
                    MakePointerAccessor (&EdcaTxopN::GetEdcaQueue),
                    MakePointerChecker<WifiMacQueue> ())
+    .AddTraceSource ("TxFailures", "Incremented for each missed ACK",
+                    MakeTraceSourceAccessor (&EdcaTxopN::m_failures),
+                    "ns3::Traced::Value::Uint64Callback")
+    .AddTraceSource ("TxSuccesses", "Incremented for each ACK",
+                    MakeTraceSourceAccessor (&EdcaTxopN::m_successes),
+                    "ns3::Traced::Value::Uint64Callback")
+    .AddTraceSource ("TxAttempts", "Incremented for every access to DCF",
+                    MakeTraceSourceAccessor (&EdcaTxopN::m_txAttempts),
+                    "ns3::Traced::Value:Uint64Callback")
+    .AddTraceSource ("BackoffCounter", "Changes in the assigned backoff",
+                    MakeTraceSourceAccessor (&EdcaTxopN::m_boCounter),
+                    "ns3::Traced::Value:Uint32Callback")
   ;
   return tid;
 }
@@ -259,7 +271,11 @@ EdcaTxopN::EdcaTxopN ()
     m_blockAckType (COMPRESSED_BLOCK_ACK),
     m_ampduExist (false),
     m_fairShare (false),
-    m_fsAggregation (0)
+    m_fsAggregation (0),
+    m_failures (0),
+    m_successes (0),
+    m_txAttempts (0),
+    m_boCounter (0xFFFFFFFF)
 {
   NS_LOG_FUNCTION (this);
   m_transmissionListener = new EdcaTxopN::TransmissionListener (this);
@@ -503,6 +519,7 @@ EdcaTxopN::NotifyAccessGranted (void)
           SendBlockAckRequest (m_currentBar);
           return;
         }
+      m_txAttempts++;
       /* check if packets need retransmission are stored in BlockAckManager */
       m_currentPacket = m_baManager->GetNextPacket (m_currentHdr);
       if (m_currentPacket == 0)
@@ -812,6 +829,7 @@ EdcaTxopN::Queue (Ptr<const Packet> packet, const WifiMacHeader &hdr)
 void
 EdcaTxopN::GotAck (double snr, WifiMode txMode)
 {
+  m_successes++;
   NS_LOG_FUNCTION (this << snr << txMode);
   if (!NeedFragmentation ()
       || IsLastFragment ()
@@ -846,6 +864,7 @@ EdcaTxopN::GotAck (double snr, WifiMode txMode)
       m_currentPacket = 0;
 
       /* Beginning of CSMA/ECA */
+      m_manager->ResetStickiness ();
       if (m_manager->GetEnvironmentForECA ())
         {
           if (!m_manager->GetHysteresisForECA ())
@@ -930,9 +949,21 @@ EdcaTxopN::MissedAck (void)
     {
       NS_LOG_DEBUG ("Retransmit");
       m_currentHdr.SetRetry ();
-      m_dcf->UpdateFailedCw ();
+
+      /* CSMA/ECA */
+      if (m_manager->GetStickiness () == 0)
+        {
+          m_failures++;
+          m_dcf->UpdateFailedCw ();
+          m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+        }
+      else
+        {
+          NS_ASSERT (m_manager->GetStickiness () > 0);
+          m_manager->ReduceStickiness ();
+          m_dcf->StartBackoffNow (deterministicBackoff (m_dcf->GetCw ()));
+        }
     }
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
   RestartAccessIfNeeded ();
 }
 
@@ -1132,8 +1163,19 @@ EdcaTxopN::EndTxNoAck (void)
   NS_LOG_FUNCTION (this);
   NS_LOG_DEBUG ("a transmission that did not require an ACK just finished");
   m_currentPacket = 0;
-  m_dcf->ResetCw ();
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+
+  if (!m_manager->GetHysteresisForECA ())
+    m_dcf->ResetCw ();
+  
+  if (m_manager->GetEnvironmentForECA ())
+    {
+      m_dcf->StartBackoffNow (deterministicBackoff (m_dcf->GetCw ()));
+    }
+  else
+    {
+      m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+    }
+  
   StartAccessIfNeeded ();
 }
 
@@ -1590,12 +1632,20 @@ EdcaTxopN::ResetStats (void)
 {
   m_fsAggregation = 0;
   m_fairShare = false;
+  m_failures = 0;
+  m_successes = 0;
+  m_txAttempts = 0;
+  m_boCounter = 0xFFFFFFFF;
 }
 
 uint32_t
 EdcaTxopN::deterministicBackoff (uint32_t cw)
 {
   uint32_t tmp = ceil(cw / 2) + 1;
+  /* Updating traced value */
+  m_boCounter = 0xFFFFFFFF;
+  m_boCounter = tmp;
+
   return tmp;
 }
 
