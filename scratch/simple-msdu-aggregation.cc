@@ -19,6 +19,9 @@
  *          Sébastien Deronne <sebastien.deronne@gmail.com>
  *          Luis Sanabria-Russo <luis.sanabria@upf.edu>
  */
+#include <iomanip>
+#include <iostream>
+#include "ns3/assert.h"
 #include "ns3/core-module.h"
 #include "ns3/network-module.h"
 #include "ns3/applications-module.h"
@@ -59,6 +62,12 @@ struct sim_config
   NodeContainer apNodes;
   NodeContainer allNodes;
   ApplicationContainer servers;
+  bool eca;
+  bool hysteresis;
+  uint32_t stickiness;
+  bool dynStick;
+  bool bitmap;
+
   bool fairShare;
 };
 struct sim_config config;
@@ -68,6 +77,8 @@ finishSetup (struct sim_config &config)
 {
   NodeContainer allNodes (config.allNodes);
   uint32_t Cwmin, Cwmax;
+  Cwmin = 0;
+  Cwmax = Cwmin;
   /* Last index in allNodes container is the AP */
   for(uint32_t i = 0; i < allNodes.GetN ()-1; i++){
     for(uint32_t j = 0; j < allNodes.GetN ()-1; j++){
@@ -91,11 +102,20 @@ finishSetup (struct sim_config &config)
     /* Configuring the clients */
     Ptr<EdcaTxopN> dca = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
       GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
+    Ptr<DcfManager> manager = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
+      GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
 
     Cwmin = dca->GetMinCw ();
     Cwmax = dca->GetMaxCw ();
-    if (config.fairShare)
-      dca->SetFairShare ();
+
+    if (config.eca)
+    {
+      dca->ResetStats ();
+      manager->SetEnvironmentForECA (config.hysteresis, config.bitmap,
+        config.stickiness, config.dynStick);
+      if (config.fairShare)
+        dca->SetFairShare ();
+    }
 
   }
   std::cout << "- Cwmin: " << Cwmin << std::endl;
@@ -104,7 +124,7 @@ finishSetup (struct sim_config &config)
 }
 
 void
-results (struct sim_config &config)
+results (struct sim_config &config, Ptr<OutputStreamWrapper> stream)
 {
   double throughput = 0.0;
   NS_ASSERT (config.servers.GetN () == config.nWifi);
@@ -117,6 +137,17 @@ results (struct sim_config &config)
       throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
     }
   std::cout << "Throughput: " << throughput << " Mbit/s" << '\n';
+
+  /* Writing to file */
+  *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6) << throughput << std::endl;
+}
+
+void
+process (std::string &dataFileName)
+{
+  std::string prefix("(cd ~/Dropbox/PhD/Research/NS3/ns-allinone-3.24.1/bake/source/ns-3.24/tmp2 && ./process ");
+  std::string command = prefix + dataFileName + ")";
+  system(command.c_str());
 }
 
 
@@ -128,8 +159,6 @@ int main (int argc, char *argv[])
   uint32_t nWifi = 2;
   uint32_t payloadSize = 1470; //bytes
   uint64_t simulationTime = 3; //seconds
-  // uint32_t nMsdus = 1;
-  // uint32_t apNMsdus = 1;
   bool enableRts = false;
   uint32_t txRate = 260;
   uint32_t destPort = 10000;
@@ -137,21 +166,43 @@ int main (int argc, char *argv[])
   std::string dataRate ("HtMcs7");
   std::string controlRate ("HtMcs7");
   std::string ackMode ("HtMcs7");
-  bool fairShare = true;
-  bool verbose = true;
+  bool verbose = false;
+  bool eca = true;
+  bool hysteresis = false;
+  uint32_t stickiness = 0;
+  bool fairShare = false;
+  bool bitmap = false;
+  bool dynStick = false;
+  int32_t seed = -1;
+
+  std::string resultsName ("results2.log");
 
   CommandLine cmd;
   // cmd.AddValue ("nMsdus", "Number of aggregated MSDUs", nMsdus); //number of aggregated MSDUs specified by the user
   cmd.AddValue ("payloadSize", "Payload size in bytes", payloadSize);
   cmd.AddValue ("enableRts", "Enable RTS/CTS", enableRts);
   cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
+  cmd.AddValue ("eca", "CSMA/ECA", eca);
+  cmd.AddValue ("hysteresis", "Hysteresis", hysteresis);
+  cmd.AddValue ("stickiness", "Stickiness", stickiness);
+  cmd.AddValue ("fairShare", "Fair Share", fairShare);
+  cmd.AddValue ("bitmap", "Bitmap activation", bitmap);
+  cmd.AddValue ("dynStick", "Dynamic stickiness", dynStick);
+  cmd.AddValue ("verbose", "Logging", verbose);
+  cmd.AddValue ("seed", "RNG simulation seed", seed);
+  cmd.AddValue ("nWifi", "Number of Wifi clients", nWifi);
+
   cmd.Parse (argc, argv);
 
   config.nWifi = nWifi;
   config.simulationTime = simulationTime;
-  // config.nMsdus = nMsdus;
   config.payloadSize = payloadSize;
+  config.eca = eca;
+  config.hysteresis = hysteresis;
+  config.stickiness = stickiness;
   config.fairShare = fairShare;
+  config.bitmap = bitmap;
+  config.dynStick = dynStick;
 
   if (!enableRts)
     {
@@ -163,6 +214,14 @@ int main (int argc, char *argv[])
     }
 
   Config::SetDefault ("ns3::WifiRemoteStationManager::FragmentationThreshold", StringValue ("990000"));
+
+  //Setting simulation seed
+  if(seed >= 0)
+    RngSeedManager::SetSeed (seed);
+
+  /* Creating the log streams */
+  AsciiTraceHelper asciiTraceHelper;
+  Ptr<OutputStreamWrapper> results_stream = asciiTraceHelper.CreateFileStream (resultsName, __gnu_cxx::ios_base::app);
 
   NodeContainer wifiStaNode;
   wifiStaNode.Create (nWifi);
@@ -273,7 +332,8 @@ int main (int argc, char *argv[])
   Simulator::Stop (Seconds (simulationTime + 1));
 
   Simulator::Schedule (Seconds (0.999999), finishSetup, config);
-  Simulator::Schedule (Seconds (simulationTime + 0.999999), results, config);
+  Simulator::Schedule (Seconds (simulationTime + 0.999999), results, config, results_stream);
+  Simulator::Schedule (Seconds (simulationTime + 0.999999), process, resultsName);
 
   Simulator::Run ();
   Simulator::Destroy ();

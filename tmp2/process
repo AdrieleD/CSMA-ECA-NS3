@@ -1,0 +1,88 @@
+#!/usr/local/bin/perl
+use Switch;
+use List::Util qw(first max maxstr min minstr reduce shuffle sum);
+use Statistics::Basic qw(:all);
+
+my $inputFile = $ARGV[0];
+my $highNodes = 0;
+my $lowNodes = 1000;
+my @time;
+my $outputFile = 'averaged.dat';
+my $aggregatedFile = 'totalAveraged.dat';
+
+open(my $input, "<", $inputFile)
+	or die "Could not open file '$inputFile' $!";
+
+#Finding the node limits
+while (my $row = <$input>){
+	chomp($row);
+	my @data = split(/\s+/, $row);
+	$highNodes = $data[0]
+		if($highNodes < $data[0]);
+	$lowNodes = $data[0]
+		if($lowNodes > $data[0]);
+}
+
+open(my $fw, ">", $outputFile)
+    or die "Could not open write file $outputFile $!";
+#Odd indexes are standard deviations in the resulting file
+print $fw ("#1 Nodes #2 AvgThroughput\n");
+
+NEXT: foreach($lowNodes .. $highNodes){
+	open(my $input, "<", $inputFile)
+		or die "Could not open file '$inputFile' $!";
+	my $thereIsData = 0;
+	my @metrics;
+
+	while(my $row = <$input>){
+		chomp($row);
+		my @data = split(/\s+/, $row);
+		if($data[0] == $_){
+			$thereIsData = 1;
+			foreach my $i (1 .. $#data){
+				push @{$metrics[$i]}, $data[$i];
+			}
+		}
+	}
+	next NEXT 
+		if($thereIsData == 0);
+
+	my $avg;
+	my $std;
+	print $fw "$_ ";
+	foreach my $i (1 .. $#metrics){
+		$avg = avg(@{$metrics[$i]}) + 0;
+		$std = stddev(@{$metrics[$i]}) + 0;
+		print $fw "$avg $std ";
+	}
+	print $fw "\n";
+}
+
+###Processing the tx.log, searching for the number of collisions seen by an external observer
+my $now = 0;
+my $infoCol = 2;
+my $failCol = 2;
+my %fails;
+my $collisions = 0;
+my $txLog = 'tx.log';
+open(my $tx, '<', $txLog)
+	or die "Could not open $txLog file\n";
+#Finding time marks
+while(my $row = <$tx>){
+	chomp($row);
+	my @data = split(/\s+/, $row);
+	$now = $data[0]
+		if ($data[0] != $now);
+
+	if ($data[$infoCol] == $failCol){
+		$fails{$now} = 1;
+	}else{
+		$fails{$now} = 0;
+	}
+}
+foreach my $key ( keys %fails )
+{
+  $collisions += $fails{$key};
+}
+
+print("-Collisions seen as an outside observer: $collisions\n\n");

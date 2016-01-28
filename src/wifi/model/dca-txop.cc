@@ -711,7 +711,7 @@ DcaTxop::GotAck (double snr, WifiMode txMode)
                 } 
             }
 
-          m_dcf->StartBackoffNow (deterministicBackoff(m_dcf->GetCw ()));
+          m_dcf->StartBackoffNow (deterministicBackoff (m_dcf->GetCw ()));
           NS_LOG_DEBUG ("Done processing success");
         }
       /* End of CSMA/ECA */

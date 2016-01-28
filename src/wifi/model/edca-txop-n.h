@@ -417,6 +417,8 @@ public:
   /* CSMA/ECA */
   void SetFairShare (void);
   bool IsFairShare (void);
+  void ResetStats (void);
+  uint32_t deterministicBackoff (uint32_t cw);
 
   /**
    * Return the next sequence number for the given header.

@@ -845,9 +845,20 @@ EdcaTxopN::GotAck (double snr, WifiMode txMode)
         }
       m_currentPacket = 0;
 
-      m_dcf->ResetCw ();
-      m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
-      RestartAccessIfNeeded ();
+      /* Beginning of CSMA/ECA */
+      if (m_manager->GetEnvironmentForECA ())
+        {
+          if (!m_manager->GetHysteresisForECA ())
+            m_dcf->ResetCw ();
+
+          m_dcf->StartBackoffNow (deterministicBackoff (m_dcf->GetCw ()));
+        }
+      else /* End of CSMA/ECA */
+        {
+          m_dcf->ResetCw ();
+          m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+          RestartAccessIfNeeded ();
+        }
     }
   else
     {
@@ -1572,6 +1583,20 @@ EdcaTxopN::BaTxFailed (const WifiMacHeader &hdr)
     {
       m_txFailedCallback (m_currentHdr);
     }
+}
+
+void
+EdcaTxopN::ResetStats (void)
+{
+  m_fsAggregation = 0;
+  m_fairShare = false;
+}
+
+uint32_t
+EdcaTxopN::deterministicBackoff (uint32_t cw)
+{
+  uint32_t tmp = ceil(cw / 2) + 1;
+  return tmp;
 }
 
 } //namespace ns3
