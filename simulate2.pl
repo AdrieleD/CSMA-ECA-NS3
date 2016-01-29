@@ -11,7 +11,10 @@ my $verbose = false;
 my $eca = false;
 my $hyst = false;
 my $dynStick = false;
+my $fairShare = false;
 my $bitmap = false;
+my $srConservative = false;
+my $srResetMode = false;
 my @command = './waf --cwd=tmp2/ --run "scratch/simple-msdu-aggregation';
 
 foreach (@ARGV){
@@ -25,6 +28,12 @@ foreach (@ARGV){
 		if $_ eq '--verbose';
 	$dynStick = true
 		if $_ eq '--dynStick';
+	$srResetMode = true
+		if $_ eq '--srResetMode';
+	$srConservative = true
+		if $_ eq '--srConservative';
+	$fairShare = true
+		if $_ eq '--fairShare';
 }
 
 if( $nMax > $nMin ){
@@ -40,7 +49,10 @@ if( $nMax > $nMin ){
 				--hysteresis=$hyst
 				--stickiness=$stickiness 
 				--dynStick=$dynStick										
-				--bitmap=$bitmap\"");
+				--bitmap=$bitmap
+				--srResetMode=$srResetMode
+				--srConservative=$srConservative
+				--fairShare=$fairShare\"");
 			my @outPut = "@command @addition";
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
@@ -61,7 +73,10 @@ if( $nMax > $nMin ){
 				--hysteresis=$hyst
 				--stickiness=$stickiness 
 				--dynStick=$dynStick										
-				--bitmap=$bitmap\"");
+				--bitmap=$bitmap
+				--srResetMode=$srResetMode
+				--srConservative=$srConservative
+				--fairShare=$fairShare\"");
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
 			system(@outPut);

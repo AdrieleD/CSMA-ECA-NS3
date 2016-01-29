@@ -440,6 +440,8 @@ public:
   bool AreWeFillingTheBitmap (void);
   void SetFillingTheBitmap (void);
   void SetNotFillingTheBitmap (void);
+  void SetEcaFairShare (void);
+  bool GetEcaFairShare (void);
 
 
 private:
@@ -587,6 +589,7 @@ private:
   uint32_t m_resetStickiness;
   bool m_dynamicStickiness;
   bool m_areWeFillingTheBitmap;
+  bool m_ecaFairShare;
 
 
   TracedValue<uint64_t> m_lastTracedTxDuration;

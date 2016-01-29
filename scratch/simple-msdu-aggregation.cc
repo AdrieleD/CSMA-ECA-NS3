@@ -73,9 +73,13 @@ struct sim_config
   bool hysteresis;
   uint32_t stickiness;
   bool dynStick;
-  bool bitmap;
-
   bool fairShare;
+  bool bitmap;
+  bool srConservative;
+  uint32_t srActivationThreshold;
+  bool srResetMode;
+  uint32_t EIFSnoDIFS;
+  uint32_t ackTimeout;
 };
 struct sim_config config;
 
@@ -126,6 +130,8 @@ finishSetup (struct sim_config &config)
       GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
     Ptr<DcfManager> manager = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
       GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+    Ptr<WifiMac> wifiMac = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
+      ->GetMac ();
 
     Cwmin = dca->GetMinCw ();
     Cwmax = dca->GetMaxCw ();
@@ -135,8 +141,30 @@ finishSetup (struct sim_config &config)
       dca->ResetStats ();
       manager->SetEnvironmentForECA (config.hysteresis, config.bitmap,
         config.stickiness, config.dynStick);
+      
       if (config.fairShare)
-        dca->SetFairShare ();
+        {
+          dca->SetFairShare ();
+          manager->SetAmsduSimulation ();  
+        }
+        
+
+      /* Setting the Ack timeout and EIFS no DIFS to be equal to DIFS */
+      if (config.EIFSnoDIFS != 314)
+        wifiMac->SetEifsNoDifs (MicroSeconds (config.EIFSnoDIFS));
+      if (config.ackTimeout != 340)
+        wifiMac->SetAckTimeout (MicroSeconds (config.ackTimeout));
+
+      /* Setting all the nasty stuff for Schedule Reset */      
+      if (config.bitmap == true)
+        {
+          if (config.srActivationThreshold == 1)
+            dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
+          if (config.srConservative)
+            dca->SetScheduleConservative ();
+          if (config.srResetMode)
+            dca->SetScheduleResetMode (); //Halving or reset?
+        }
     }
 
   }
@@ -147,7 +175,8 @@ finishSetup (struct sim_config &config)
   std::cout << "- Hysteresis: " << config.hysteresis << std::endl;
   std::cout << "\t- Stickiness: " << config.stickiness << std::endl;
   std::cout << "- FairShare: " << config.fairShare << std::endl;
-
+  std::cout << "- Schedule Reduction: " << config.bitmap << std::endl;
+  std::cout << "- Schedule Halving (0) or Reset (1): " << config.srResetMode << std::endl;
 }
 
 void
@@ -248,6 +277,52 @@ TraceLastTxDuration(Ptr<OutputStreamWrapper> stream, std::string context, uint64
     *stream->GetStream () << m_now << " " << context << " " << txDUR << " " << newValue << std::endl; 
 }
 
+void
+TraceEcaBitmap(Ptr<OutputStreamWrapper> stream, std::string context, std::vector<bool> *bmold, std::vector<bool> *bmnew)
+{
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+
+  if(bmnew)
+    {
+      *stream->GetStream () << m_now << " " << context << " " << bmnew->size() << " ";
+      for (std::vector<bool>::iterator i = bmnew->begin(); i != bmnew->end(); i++)
+        {
+          uint32_t slot = 0;
+          if (*i == true)
+            slot = 1;
+          *stream->GetStream () << slot;
+        }
+      *stream->GetStream () << std::endl;
+    }
+}
+
+void
+TraceSrAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+  results->srAttempts++;
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << TX << " " << newValue << std::endl;
+}
+
+void
+TraceSrReductions(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+  results->srReductions++;
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << SXTX << " " << newValue << std::endl;
+}
+
+void
+TraceSrFails(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+  results->srFails++;
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
+}
+
 
 NS_LOG_COMPONENT_DEFINE ("SimpleMsduAggregation");
 
@@ -270,11 +345,19 @@ int main (int argc, char *argv[])
   bool fairShare = false;
   bool bitmap = false;
   bool dynStick = false;
+  bool srConservative = false;
+  uint32_t srActivationThreshold = 1;
+  bool srResetMode = false;
+  uint32_t EIFSnoDIFS = 314;
+  uint32_t ackTimeout = 340;
   int32_t seed = -1;
+
 
   std::string resultsName ("results2.log");
   std::string txLog ("tx.log");
   std::string backoffLog ("detBackoff.log");
+  std::string bitmapLog ("bitmap.log");
+  std::string srLog ("sr.log");
 
   CommandLine cmd;
   // cmd.AddValue ("nMsdus", "Number of aggregated MSDUs", nMsdus); //number of aggregated MSDUs specified by the user
@@ -287,9 +370,15 @@ int main (int argc, char *argv[])
   cmd.AddValue ("fairShare", "Fair Share", fairShare);
   cmd.AddValue ("bitmap", "Bitmap activation", bitmap);
   cmd.AddValue ("dynStick", "Dynamic stickiness", dynStick);
+  cmd.AddValue ("srConservative", "Adjusts the number of iterations for building Schedule Reset bitmap", srConservative);
+  cmd.AddValue ("srActivationThreshold", "After this many consecutive successfull transmissions, SR is activated", srActivationThreshold);
+  cmd.AddValue ("srResetMode", "By default, schedules will be halved. Set true for Schedule Reset", srResetMode);
+  cmd.AddValue ("EIFSnoDIFS", "IFS before retransmitting a frame", EIFSnoDIFS);
+  cmd.AddValue ("AckTimeout", "Time that will timeout the DATA+ACK exchange", ackTimeout);
   cmd.AddValue ("verbose", "Logging", verbose);
   cmd.AddValue ("seed", "RNG simulation seed", seed);
   cmd.AddValue ("nWifi", "Number of Wifi clients", nWifi);
+  cmd.AddValue ("verbose", "Logging", verbose);
 
   cmd.Parse (argc, argv);
 
@@ -302,6 +391,11 @@ int main (int argc, char *argv[])
   config.fairShare = fairShare;
   config.bitmap = bitmap;
   config.dynStick = dynStick;
+  config.srConservative = srConservative;
+  config.srActivationThreshold = srActivationThreshold;
+  config.srResetMode = srResetMode;
+  config.EIFSnoDIFS = EIFSnoDIFS;
+  config.ackTimeout = ackTimeout;
 
   results.srAttempts = 0;
   results.srFails = 0;
@@ -334,6 +428,8 @@ int main (int argc, char *argv[])
   Ptr<OutputStreamWrapper> results_stream = asciiTraceHelper.CreateFileStream (resultsName, __gnu_cxx::ios_base::app);
   Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream (txLog);
   Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
+  Ptr<OutputStreamWrapper> bitmap_stream = asciiTraceHelper.CreateFileStream (bitmapLog);
+  Ptr<OutputStreamWrapper> sr_stream = asciiTraceHelper.CreateFileStream (srLog);
 
   NodeContainer wifiStaNode;
   wifiStaNode.Create (nWifi);
@@ -439,6 +535,7 @@ int main (int argc, char *argv[])
   if (verbose)
     {
       LogComponentEnable ("EdcaTxopN", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("DcfManager", LOG_LEVEL_DEBUG);
     }
 
   /* Connecting the trace sources to their respective sinks */
@@ -454,12 +551,11 @@ int main (int argc, char *argv[])
       dca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results));
       dca->TraceConnect ("TxSuccesses", n.str (), MakeBoundCallback (&TraceSuccesses, tx_stream, &results));
       dca->TraceConnect ("TxAttempts", n.str (), MakeBoundCallback (&TraceTxAttempts, tx_stream, &results));
-      dca->TraceConnect ("BackoffCounter", n.str (), MakeBoundCallback (&TraceAssignedBackoff, backoff_stream));
-      
-      // dca->TraceConnect ("Bitmap", n.str (), MakeBoundCallback (&TraceEcaBitmap, bitmap_stream));
-      // dca->TraceConnect ("SrReductionAttempts", n.str (), MakeBoundCallback (&TraceSrAttempts, sr_stream, &results));
-      // dca->TraceConnect ("SrReductions", n.str (), MakeBoundCallback (&TraceSrReductions, sr_stream, &results));
-      // dca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
+      dca->TraceConnect ("BackoffCounter", n.str (), MakeBoundCallback (&TraceAssignedBackoff, backoff_stream));  
+      dca->TraceConnect ("Bitmap", n.str (), MakeBoundCallback (&TraceEcaBitmap, bitmap_stream));
+      dca->TraceConnect ("SrReductionAttempts", n.str (), MakeBoundCallback (&TraceSrAttempts, sr_stream, &results));
+      dca->TraceConnect ("SrReductions", n.str (), MakeBoundCallback (&TraceSrReductions, sr_stream, &results));
+      dca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
 
       // phy->TraceConnect ("FramesWithErrors", n.str (), MakeBoundCallback (&TraceErrorFrames, tx_stream, &results));
 

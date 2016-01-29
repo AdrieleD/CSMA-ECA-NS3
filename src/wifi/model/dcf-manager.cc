@@ -348,6 +348,7 @@ DcfManager::DcfManager ()
     m_resetStickiness (0),
     m_dynamicStickiness (false),
     m_areWeFillingTheBitmap (false),
+    m_ecaFairShare (false),
     m_lastTracedTxDuration (0xFFFFFFFFFFFFFFFF)
 {
   NS_LOG_FUNCTION (this);
@@ -681,12 +682,24 @@ DcfManager::UpdateBackoff (void)
           
           if(GetEnvironmentForECA () == true && GetScheduleReset ())
             {
-              if (i == m_states.begin ())
-                {  
-                  if (AreWeFillingTheBitmap ())
+              // Check DCF 3 when working with the AMSDU example. DCF 0 Otherwise.
+              if (GetAmsduSimulation ())
+                {
+                  if (AreWeFillingTheBitmap () && k == 3)
                     {
-                      MY_DEBUG ("Attempting to update the bitmap");
+                      MY_DEBUG ("Attempting to update the bitmap with Fair Share");
                       UpdateEcaBitmap (state);
+                    }
+                }
+              else
+                {
+                  if (i == m_states.begin ())
+                    {  
+                      if (AreWeFillingTheBitmap ())
+                        {
+                          MY_DEBUG ("Attempting to update the bitmap");
+                          UpdateEcaBitmap (state);
+                        }
                     }
                 }
             }
@@ -1137,6 +1150,18 @@ void
 DcfManager::SetNotFillingTheBitmap (void)
 {
   m_areWeFillingTheBitmap = false;
+}
+
+void
+DcfManager::SetAmsduSimulation (void)
+{
+  m_ecaFairShare = true;
+}
+
+bool
+DcfManager::GetAmsduSimulation (void)
+{
+  return m_ecaFairShare;
 }
 
 } //namespace ns3

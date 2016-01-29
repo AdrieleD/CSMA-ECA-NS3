@@ -422,6 +422,26 @@ public:
   bool IsFairShare (void);
   void ResetStats (void);
   uint32_t deterministicBackoff (uint32_t cw);
+  bool CanWeReduceTheSchedule (void);
+  uint32_t GetConsecutiveSuccesses (void);
+  void AddConsecutiveSuccess (void);
+  void ResetConsecutiveSuccess (void);
+  uint32_t GetScheduleResetThreshold (void);
+  void SetScheduleResetThreshold (void);
+  void SetScheduleConservative (void);
+  bool GetScheduleResetMode (void);
+  void SetScheduleResetActivationThreshold (uint32_t thresh);
+  uint32_t GetScheduleResetActivationThreshold (void);
+  void SetScheduleResetMode (void);
+  void ModifyCwAccordingToScheduleReduction (void);
+  uint32_t GetScheduleReductionFactor (void);
+  void ResetSrMetrics (void);
+  void KeepScheduleReductionIfAny (void);
+  uint32_t GetAssignedBackoff (void);
+  void SetAggregationWithFairShare (void);
+
+  //For tracing the bitmap
+  typedef void (* TracedEcaBitmap) (std::vector<bool> *bmold, std::vector<bool> *bmnew); 
 
   /**
    * Return the next sequence number for the given header.
@@ -568,10 +588,27 @@ private:
 
   bool m_fairShare;
   uint16_t m_fsAggregation;
+  uint32_t m_consecutiveSuccess;
+  bool m_settingThreshold;
+  uint32_t m_scheduleResetThreshold;
+  bool m_scheduleResetConservative;
+  bool m_scheduleResetMode;
+  uint32_t m_srActivationThreshold;
+  bool m_srBeingFilled;
+  uint32_t m_srIterations;
+  uint32_t m_srReductionFactor;
+  bool m_scheduleRecentlyReduced;
+  uint32_t m_srPreviousCw;
+
+
   TracedValue<uint64_t> m_failures;
   TracedValue<uint64_t> m_successes;
   TracedValue<uint64_t> m_txAttempts;
   TracedValue<uint32_t> m_boCounter;
+  TracedValue<std::vector<bool> *> m_ecaBitmap;
+  TracedValue<uint32_t> m_scheduleReductions;
+  TracedValue<uint32_t> m_scheduleReductionAttempts;
+  TracedValue<uint32_t> m_scheduleReductionFailed;
 };
 
 } //namespace ns3
