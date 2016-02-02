@@ -271,6 +271,9 @@ EdcaTxopN::GetTypeId (void)
     .AddTraceSource ("SrReductionFailed", "Times does not comply with SR criteria",
                     MakeTraceSourceAccessor (&EdcaTxopN::m_scheduleReductionFailed),
                     "ns3::Traced::Value:Uint32Callback")
+    .AddTraceSource ("FsAggregated", "Number of frames aggregated",
+                    MakeTraceSourceAccessor (&EdcaTxopN::m_fsAggregated),
+                    "ns3::Traced::Value:Uint16Callback")
   ;
   return tid;
 }
@@ -297,7 +300,8 @@ EdcaTxopN::EdcaTxopN ()
     m_ecaBitmap (false),
     m_scheduleReductions (0),
     m_scheduleReductionAttempts (0),
-    m_scheduleReductionFailed (0)
+    m_scheduleReductionFailed (0),
+    m_fsAggregated (0xFFFF)
 {
   NS_LOG_FUNCTION (this);
   m_transmissionListener = new EdcaTxopN::TransmissionListener (this);
@@ -342,7 +346,6 @@ EdcaTxopN::DoDispose (void)
   m_blockAckListener = 0;
   m_txMiddle = 0;
   m_aggregator = 0;
-  m_fsAggregation = 0;
 }
 
 bool
@@ -673,8 +676,11 @@ EdcaTxopN::NotifyAccessGranted (void)
               else
                 {
                   SetAggregationWithFairShare ();
-                  for (uint16_t i = 0; i < std::pow (2, m_fsAggregation); i++)
+                  NS_ASSERT (m_fsAggregation >= 0 && m_fsAggregation <= 6);
+                  uint16_t totalFrames = std::pow (2, m_fsAggregation);
+                  for (uint16_t i = 0; i < totalFrames; i++)
                     {
+                      NS_LOG_DEBUG ("Aggregating frame " << i + 1 << " of " << totalFrames);
                       aggregated = m_aggregator->Aggregate (peekedPacket, currentAggregatedPacket,
                                                             MapSrcAddressForAggregation (peekedHdr),
                                                             MapDestAddressForAggregation (peekedHdr));
@@ -685,6 +691,7 @@ EdcaTxopN::NotifyAccessGranted (void)
                         }
                       else
                         {
+                          NS_LOG_DEBUG ("Not performing aggregation");
                           break;
                         }
                       peekedPacket = m_queue->PeekByTidAndAddress (&peekedHdr, m_currentHdr.GetQosTid (),
@@ -1017,6 +1024,7 @@ EdcaTxopN::MissedAck (void)
       if (m_manager->GetStickiness () == 0)
         {
           m_failures++;
+          ResetConsecutiveSuccess ();
           if (m_manager->GetScheduleReset ())
             ResetSrMetrics ();
           m_dcf->UpdateFailedCw ();
@@ -1349,6 +1357,7 @@ void
 EdcaTxopN::SetMsduAggregator (Ptr<MsduAggregator> aggr)
 {
   NS_LOG_FUNCTION (this << aggr);
+  NS_LOG_DEBUG ("Setting new aggregator");
   m_aggregator = aggr;
 }
 
@@ -1724,6 +1733,7 @@ EdcaTxopN::ResetStats (void)
   NS_LOG_DEBUG ("Resetting stats");
 
   m_fsAggregation = 0;
+  m_fsAggregated = 0xFFFF;
   m_fairShare = false;
   m_failures = 0;
   m_successes = 0;
@@ -1938,7 +1948,16 @@ EdcaTxopN::SetAggregationWithFairShare (void)
 {
   m_fsAggregation = 0;
   if (GetConsecutiveSuccesses () > 0)
-    m_fsAggregation =  log2 ((m_dcf->GetCw () + 1) / (m_dcf->GetCwMin () + 1));
+    {
+      if (m_dcf->GetCw () > m_dcf->GetCwMin ())
+        {
+          m_fsAggregation =  log2 ((m_dcf->GetCw () + 1) / (m_dcf->GetCwMin () + 1));
+           // Updating traced value 
+          m_fsAggregated = 0xFFFF;
+          m_fsAggregated = m_fsAggregation;
+          NS_LOG_DEBUG (m_fsAggregation);
+        }
+    }
 }
 
 } //namespace ns3

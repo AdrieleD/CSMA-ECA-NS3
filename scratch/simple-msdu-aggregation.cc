@@ -56,6 +56,7 @@
  #define TX 3 //attempts
  #define BO 4 //assigned backoff
  #define txDUR 5 //last Tx duration
+ #define FSAGG 6 //# of frames aggregated
 
 using namespace ns3;
 
@@ -105,6 +106,10 @@ finishSetup (struct sim_config &config)
   uint32_t Cwmin, Cwmax;
   Cwmin = 0;
   Cwmax = Cwmin;
+  ObjectFactory m_factory;
+  Ptr<MsduAggregator> m_msduAggregator;
+  Ptr<MpduAggregator> m_mpduAggregator;
+
   /* Last index in allNodes container is the AP */
   for(uint32_t i = 0; i < allNodes.GetN ()-1; i++){
     for(uint32_t j = 0; j < allNodes.GetN ()-1; j++){
@@ -132,6 +137,7 @@ finishSetup (struct sim_config &config)
       GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
     Ptr<WifiMac> wifiMac = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
       ->GetMac ();
+    Ptr<MacLow> macLow = dca->Low ();
 
     Cwmin = dca->GetMinCw ();
     Cwmax = dca->GetMaxCw ();
@@ -145,9 +151,19 @@ finishSetup (struct sim_config &config)
       if (config.fairShare)
         {
           dca->SetFairShare ();
-          manager->SetAmsduSimulation ();  
+          // uint32_t maxAggregatedFrames = (Cwmax + 1) / (Cwmin + 1);
+          // m_factory = ObjectFactory ();
+          // m_factory.SetTypeId ("ns3::MsduStandardAggregator");
+          // m_factory.Set ("MaxAmsduSize", UintegerValue (maxAggregatedFrames));
+          // m_msduAggregator = m_factory.Create<MsduAggregator> ();
+          // dca->SetMsduAggregator (m_msduAggregator);
+
+          // m_factory = ObjectFactory ();
+          // m_factory.SetTypeId ("ns3::MpduStandardAggregator");
+          // m_factory.Set ("MaxAmpduSize", UintegerValue (maxAggregatedFrames * config.payloadSize));
+          // m_mpduAggregator = m_factory.Create<MpduAggregator> ();
+          // macLow->SetMpduAggregator (m_mpduAggregator);
         }
-        
 
       /* Setting the Ack timeout and EIFS no DIFS to be equal to DIFS */
       if (config.EIFSnoDIFS != 314)
@@ -158,6 +174,7 @@ finishSetup (struct sim_config &config)
       /* Setting all the nasty stuff for Schedule Reset */      
       if (config.bitmap == true)
         {
+          manager->SetAmsduSimulation ();
           if (config.srActivationThreshold == 1)
             dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
           if (config.srConservative)
@@ -207,7 +224,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
     }
   std::cout << "- Throughput: " << throughput << " Mbit/s" << '\n';
   double colFrac = 0;
-  if (col > 0) colFrac = col/attempts;
+  if (col > 0) colFrac = col/(sx + col);
   std::cout << "-Fraction of tx resulting in collisions: " << colFrac << ". " << attempts << " attempts" << std::endl;
   std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs.\n" << std::endl;
   std::cout << "-Average time between successful transmissions: " << std::endl;
@@ -218,7 +235,8 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
     }
 
   /* Writing to file */
-  *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6) << throughput << std::endl;
+  *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6) << throughput 
+  << " " << colFrac << " " << overallTimeBetweenSxTx/config.servers.GetN () << std::endl;
 }
 
 void
@@ -323,6 +341,15 @@ TraceSrFails(Ptr<OutputStreamWrapper> stream, struct sim_results *results,
   *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
 }
 
+void
+TraceFsAggregated(Ptr<OutputStreamWrapper> stream, std::string context, uint16_t oldValue, uint16_t newValue)
+{
+  if (newValue != 0xFFFF)
+    {
+      uint64_t m_now = Simulator::Now().GetNanoSeconds();
+      *stream->GetStream () << m_now << " " << context << " " << FSAGG << " " << newValue << std::endl;
+    }
+}
 
 NS_LOG_COMPONENT_DEFINE ("SimpleMsduAggregation");
 
@@ -332,7 +359,7 @@ int main (int argc, char *argv[])
   uint32_t payloadSize = 1470; //bytes
   uint64_t simulationTime = 3; //seconds
   bool enableRts = false;
-  uint32_t txRate = 260;
+  uint32_t txRate = 2e3;
   uint32_t destPort = 10000;
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
   std::string dataRate ("HtMcs7");
@@ -351,7 +378,8 @@ int main (int argc, char *argv[])
   uint32_t EIFSnoDIFS = 314;
   uint32_t ackTimeout = 340;
   int32_t seed = -1;
-
+  uint32_t nMsdus = 1;
+  uint32_t maxMsdus = 1024/16; /* Cwmax / Cwmin */
 
   std::string resultsName ("results2.log");
   std::string txLog ("tx.log");
@@ -465,7 +493,11 @@ int main (int argc, char *argv[])
                "Ssid", SsidValue (ssid),
                "ActiveProbing", BooleanValue (false));
 
-  mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator");
+  if (fairShare)
+    nMsdus = maxMsdus;
+
+  mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
+                              "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
 
   NetDeviceContainer staDevice;
   staDevice = wifi.Install (phy, mac, wifiStaNode);
@@ -473,7 +505,8 @@ int main (int argc, char *argv[])
   mac.SetType ("ns3::ApWifiMac",
                "Ssid", SsidValue (ssid));
 
-  mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator");
+  mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
+                              "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
 
   NetDeviceContainer apDevice;
   apDevice = wifi.Install (phy, mac, wifiApNode);
@@ -530,12 +563,16 @@ int main (int argc, char *argv[])
       ApplicationContainer clientApp = myClient.Install (wifiStaNode.Get (i));
       clientApp.Start (Seconds (1.0));
       clientApp.Stop (Seconds (simulationTime + 1));
+      std::cout << "-Setting UDP flow " << i << "/" << nWifi << " to AP " << ApInterface.GetAddress (0)
+      << ", node: " << wifiStaNode.Get (i)->GetId () << std::endl;
     }
 
   if (verbose)
     {
       LogComponentEnable ("EdcaTxopN", LOG_LEVEL_DEBUG);
       LogComponentEnable ("DcfManager", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("MsduStandardAggregator", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("MsduAggregator", LOG_LEVEL_DEBUG);
     }
 
   /* Connecting the trace sources to their respective sinks */
@@ -556,6 +593,7 @@ int main (int argc, char *argv[])
       dca->TraceConnect ("SrReductionAttempts", n.str (), MakeBoundCallback (&TraceSrAttempts, sr_stream, &results));
       dca->TraceConnect ("SrReductions", n.str (), MakeBoundCallback (&TraceSrReductions, sr_stream, &results));
       dca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
+      dca->TraceConnect ("FsAggregated", n.str (), MakeBoundCallback (&TraceFsAggregated, tx_stream));
 
       // phy->TraceConnect ("FramesWithErrors", n.str (), MakeBoundCallback (&TraceErrorFrames, tx_stream, &results));
 

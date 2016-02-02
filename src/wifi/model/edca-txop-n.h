@@ -609,6 +609,7 @@ private:
   TracedValue<uint32_t> m_scheduleReductions;
   TracedValue<uint32_t> m_scheduleReductionAttempts;
   TracedValue<uint32_t> m_scheduleReductionFailed;
+  TracedValue<uint16_t> m_fsAggregated;
 };
 
 } //namespace ns3

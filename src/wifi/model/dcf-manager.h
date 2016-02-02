@@ -440,8 +440,8 @@ public:
   bool AreWeFillingTheBitmap (void);
   void SetFillingTheBitmap (void);
   void SetNotFillingTheBitmap (void);
-  void SetEcaFairShare (void);
-  bool GetEcaFairShare (void);
+  void SetAmsduSimulation (void);
+  bool GetAmsduSimulation (void);
 
 
 private:

@@ -3,7 +3,7 @@ use List::Util qw(first max maxstr min minstr reduce shuffle sum);
 my $nMax = $ARGV[1];
 my $nMin = $ARGV[0];
 my $rep = 1;
-my $simulationTime = 5;
+my $simulationTime = 20;
 my $seed = -1; #Keep -1 to leave unchanged
 my $stickiness = 0;
 
@@ -82,3 +82,8 @@ if( $nMax > $nMin ){
 			system(@outPut);
 		}
 }
+
+#Sending email at the end of the simulation
+# my $simulation = "$simulationTime-$eca-$hyst-$stickiness-$dynStick-$bitmap-$srResetMode-$srConservative-$fairShare";
+# my @mail = ("./sendMail.pl $simulation");
+# system(@mail);

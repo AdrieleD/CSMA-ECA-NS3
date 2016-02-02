@@ -1,5 +1,5 @@
 #!/bin/bash
 export NS_LOG=''
 #export NS_LOG='DcfManager=level_debug|prefix_time|prefix_node|prefix_func:DcaTxop=level_debug|prefix_time|prefix_node|prefix_func'
-export NS_LOG='DcfManager=level_debug|prefix_all:EdcaTxopN=level_debug|prefix_all:MacLow=level_debug|prefix_all'
+export NS_LOG='MsduAggregator=level_debug|prefix_all:MsduStandardAggregator=level_debug|prefix_all:DcfManager=level_debug|prefix_all:EdcaTxopN=level_debug|prefix_all:MacLow=level_debug|prefix_all'
 #export NS_LOG='DcfManager=level_debug|prefix_all:DcaTxop=level_debug|prefix_all:UdpClient=level_debug|prefix_all:UdpServer=level_debug|prefix_all'
