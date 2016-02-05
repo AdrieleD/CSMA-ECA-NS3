@@ -58,7 +58,8 @@ NEXT: foreach($lowNodes .. $highNodes){
 	print $fw "\n";
 }
 
-###Processing the tx.log, searching for the number of collisions seen by an external observer
+### Processing the tx.log, searching for the number of collisions 
+### seen by an external observer
 my $now = 0;
 my $infoCol = 2;
 my $failCol = 2;

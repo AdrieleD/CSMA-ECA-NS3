@@ -675,12 +675,20 @@ EdcaTxopN::NotifyAccessGranted (void)
                 }
               else
                 {
+                  uint32_t count = 1;
                   SetAggregationWithFairShare ();
                   NS_ASSERT (m_fsAggregation >= 0 && m_fsAggregation <= 6);
                   uint16_t totalFrames = std::pow (2, m_fsAggregation);
-                  for (uint16_t i = 0; i < totalFrames; i++)
+                  if (totalFrames == 1)
                     {
-                      NS_LOG_DEBUG ("Aggregating frame " << i + 1 << " of " << totalFrames);
+                      NS_LOG_DEBUG ("On the zeroth backoff stage. Transmitting unicast");
+                      count = totalFrames;
+                    }
+                    
+                  while (count < totalFrames && peekedPacket != 0)
+                    {
+                      NS_LOG_DEBUG ("Peeked: " << count);
+                      NS_LOG_DEBUG ("Aggregating frame " << count + 1 << " of " << totalFrames);
                       aggregated = m_aggregator->Aggregate (peekedPacket, currentAggregatedPacket,
                                                             MapSrcAddressForAggregation (peekedHdr),
                                                             MapDestAddressForAggregation (peekedHdr));
@@ -695,7 +703,8 @@ EdcaTxopN::NotifyAccessGranted (void)
                           break;
                         }
                       peekedPacket = m_queue->PeekByTidAndAddress (&peekedHdr, m_currentHdr.GetQosTid (),
-                                                                   WifiMacHeader::ADDR1, m_currentHdr.GetAddr1 (), &tstamp);
+                                                                       WifiMacHeader::ADDR1, m_currentHdr.GetAddr1 (), &tstamp);
+                      count ++;
                     }
                 }
 

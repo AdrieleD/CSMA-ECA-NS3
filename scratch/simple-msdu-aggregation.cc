@@ -81,6 +81,7 @@ struct sim_config
   bool srResetMode;
   uint32_t EIFSnoDIFS;
   uint32_t ackTimeout;
+  uint32_t maxMsdus;
 };
 struct sim_config config;
 
@@ -89,6 +90,7 @@ struct sim_results{
   std::vector<uint64_t> sxTx;
   std::vector<uint64_t> failTx;
   std::vector<uint64_t> txAttempts;
+  std::vector<uint64_t> udpClientSentPackets;
   uint64_t lastCollision;
   uint32_t srAttempts;
   uint32_t srReductions;
@@ -98,6 +100,33 @@ struct sim_results{
   uint64_t errorFrames;
 };
 struct sim_results results;
+
+double
+GetJFI (sim_results *results)
+{
+  double jfi = 0.0;
+  double num = 0.0;
+  double denom = 0.0;
+  for (uint32_t i = 0; i < results->stas; i++)
+    {
+      if (results->udpClientSentPackets.at (i) > 0)
+        {
+          num += results->udpClientSentPackets.at (i);
+          denom += results->stas * std::pow (results->udpClientSentPackets.at (i), 2);
+        }
+      else
+        {
+          num = 0;
+          denom = 1;
+          std::cout << "Some clients did not sent packets." << std::endl;
+          break;
+        }
+    }
+
+  jfi = std::pow (num, 2) / denom;
+
+  return jfi;
+}
 
 void
 finishSetup (struct sim_config &config)
@@ -149,21 +178,7 @@ finishSetup (struct sim_config &config)
         config.stickiness, config.dynStick);
       
       if (config.fairShare)
-        {
           dca->SetFairShare ();
-          // uint32_t maxAggregatedFrames = (Cwmax + 1) / (Cwmin + 1);
-          // m_factory = ObjectFactory ();
-          // m_factory.SetTypeId ("ns3::MsduStandardAggregator");
-          // m_factory.Set ("MaxAmsduSize", UintegerValue (maxAggregatedFrames));
-          // m_msduAggregator = m_factory.Create<MsduAggregator> ();
-          // dca->SetMsduAggregator (m_msduAggregator);
-
-          // m_factory = ObjectFactory ();
-          // m_factory.SetTypeId ("ns3::MpduStandardAggregator");
-          // m_factory.Set ("MaxAmpduSize", UintegerValue (maxAggregatedFrames * config.payloadSize));
-          // m_mpduAggregator = m_factory.Create<MpduAggregator> ();
-          // macLow->SetMpduAggregator (m_mpduAggregator);
-        }
 
       /* Setting the Ack timeout and EIFS no DIFS to be equal to DIFS */
       if (config.EIFSnoDIFS != 314)
@@ -192,6 +207,7 @@ finishSetup (struct sim_config &config)
   std::cout << "- Hysteresis: " << config.hysteresis << std::endl;
   std::cout << "\t- Stickiness: " << config.stickiness << std::endl;
   std::cout << "- FairShare: " << config.fairShare << std::endl;
+  std::cout << "\t-Max aMSDU: " << config.maxMsdus << std::endl;
   std::cout << "- Schedule Reduction: " << config.bitmap << std::endl;
   std::cout << "- Schedule Halving (0) or Reset (1): " << config.srResetMode << std::endl;
 }
@@ -214,8 +230,8 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
   for (uint32_t i = 0; i < config.servers.GetN (); i++)
     {
       uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
+      results->udpClientSentPackets.at (i) = totalPacketsThrough;
       throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
-
       col += results->failTx.at (i);
       attempts += results->txAttempts.at (i);
       sx += results->sxTx.at (i);
@@ -227,6 +243,8 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
   if (col > 0) colFrac = col/(sx + col);
   std::cout << "-Fraction of tx resulting in collisions: " << colFrac << ". " << attempts << " attempts" << std::endl;
   std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs.\n" << std::endl;
+  double jfi = GetJFI (results);
+  std::cout << "-JFI: " << jfi << std::endl;
   std::cout << "-Average time between successful transmissions: " << std::endl;
   for (int i = 0; i < config.servers.GetN(); i++)
     {
@@ -235,8 +253,9 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
     }
 
   /* Writing to file */
-  *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6) << throughput 
-  << " " << colFrac << " " << overallTimeBetweenSxTx/config.servers.GetN () << std::endl;
+  *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6) 
+  << throughput << " " << colFrac << " " << overallTimeBetweenSxTx/config.servers.GetN () 
+  << " " << jfi << std::endl;
 }
 
 void
@@ -359,7 +378,7 @@ int main (int argc, char *argv[])
   uint32_t payloadSize = 1470; //bytes
   uint64_t simulationTime = 3; //seconds
   bool enableRts = false;
-  uint32_t txRate = 2e3;
+  uint32_t txRate = 73;
   uint32_t destPort = 10000;
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
   std::string dataRate ("HtMcs7");
@@ -386,6 +405,7 @@ int main (int argc, char *argv[])
   std::string backoffLog ("detBackoff.log");
   std::string bitmapLog ("bitmap.log");
   std::string srLog ("sr.log");
+  std::string fsLog ("fs.log");
 
   CommandLine cmd;
   // cmd.AddValue ("nMsdus", "Number of aggregated MSDUs", nMsdus); //number of aggregated MSDUs specified by the user
@@ -424,14 +444,16 @@ int main (int argc, char *argv[])
   config.srResetMode = srResetMode;
   config.EIFSnoDIFS = EIFSnoDIFS;
   config.ackTimeout = ackTimeout;
+  config.maxMsdus = maxMsdus;
 
   results.srAttempts = 0;
   results.srFails = 0;
   results.srReductions = 0;
   results.stas = nWifi;
-  results.sxTx.assign (results.stas,0);
-  results.failTx.assign (results.stas,0);
-  results.txAttempts.assign (results.stas,0);
+  results.sxTx.assign (results.stas, 0);
+  results.failTx.assign (results.stas, 0);
+  results.txAttempts.assign (results.stas, 0);
+  results.udpClientSentPackets.assign (results.stas, 0);
   results.sumTimeBetweenSxTx.assign (results.stas, NanoSeconds (0));
   results.timeOfPrevSxTx.assign (results.stas, NanoSeconds (0));
   results.errorFrames = 0;
@@ -458,6 +480,7 @@ int main (int argc, char *argv[])
   Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
   Ptr<OutputStreamWrapper> bitmap_stream = asciiTraceHelper.CreateFileStream (bitmapLog);
   Ptr<OutputStreamWrapper> sr_stream = asciiTraceHelper.CreateFileStream (srLog);
+  Ptr<OutputStreamWrapper> fs_stream = asciiTraceHelper.CreateFileStream (fsLog);
 
   NodeContainer wifiStaNode;
   wifiStaNode.Create (nWifi);
@@ -493,7 +516,7 @@ int main (int argc, char *argv[])
                "Ssid", SsidValue (ssid),
                "ActiveProbing", BooleanValue (false));
 
-  if (fairShare)
+  if (fairShare == true)
     nMsdus = maxMsdus;
 
   mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
@@ -503,7 +526,8 @@ int main (int argc, char *argv[])
   staDevice = wifi.Install (phy, mac, wifiStaNode);
 
   mac.SetType ("ns3::ApWifiMac",
-               "Ssid", SsidValue (ssid));
+               "Ssid", SsidValue (ssid),
+               "BeaconGeneration", BooleanValue (true));
 
   mac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
                               "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
@@ -593,7 +617,7 @@ int main (int argc, char *argv[])
       dca->TraceConnect ("SrReductionAttempts", n.str (), MakeBoundCallback (&TraceSrAttempts, sr_stream, &results));
       dca->TraceConnect ("SrReductions", n.str (), MakeBoundCallback (&TraceSrReductions, sr_stream, &results));
       dca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
-      dca->TraceConnect ("FsAggregated", n.str (), MakeBoundCallback (&TraceFsAggregated, tx_stream));
+      dca->TraceConnect ("FsAggregated", n.str (), MakeBoundCallback (&TraceFsAggregated, fs_stream));
 
       // phy->TraceConnect ("FramesWithErrors", n.str (), MakeBoundCallback (&TraceErrorFrames, tx_stream, &results));
 

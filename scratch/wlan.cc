@@ -167,7 +167,7 @@ processFinal(std::string &dataFileName)
   system(command.c_str());
 }
 
-//Trace calbacks
+//Trace callbacks
 void
 TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue){
