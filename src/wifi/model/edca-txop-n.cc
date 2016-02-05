@@ -759,6 +759,8 @@ EdcaTxopN::NotifyCollision (void)
     }
   else
     {
+      if (m_manager->GetScheduleReset ())
+        ResetSrMetrics ();
       m_dcf->ResetCw ();
       m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
     }

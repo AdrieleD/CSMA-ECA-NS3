@@ -139,6 +139,12 @@ finishSetup (struct sim_config &config)
   Ptr<MsduAggregator> m_msduAggregator;
   Ptr<MpduAggregator> m_mpduAggregator;
 
+  /* For displaying */
+  uint32_t SIFS = 0;
+  uint32_t aSlot = 0;
+  uint32_t EIFSnoDIFS = 0;
+  uint32_t ackTimeout = 0;
+
   /* Last index in allNodes container is the AP */
   for(uint32_t i = 0; i < allNodes.GetN ()-1; i++){
     for(uint32_t j = 0; j < allNodes.GetN ()-1; j++){
@@ -168,8 +174,15 @@ finishSetup (struct sim_config &config)
       ->GetMac ();
     Ptr<MacLow> macLow = dca->Low ();
 
+    /* Mainly for displaying */
     Cwmin = dca->GetMinCw ();
     Cwmax = dca->GetMaxCw ();
+    aSlot = wifiMac->GetSlot ().GetMicroSeconds ();
+    SIFS = wifiMac->GetSifs ().GetMicroSeconds ();
+    EIFSnoDIFS = wifiMac->GetEifsNoDifs ().GetMicroSeconds ();
+    ackTimeout = wifiMac->GetAckTimeout ().GetMicroSeconds ();
+
+    /* </Mainly for displaying> */
 
     if (config.eca)
     {
@@ -210,6 +223,12 @@ finishSetup (struct sim_config &config)
   std::cout << "\t-Max aMSDU: " << config.maxMsdus << std::endl;
   std::cout << "- Schedule Reduction: " << config.bitmap << std::endl;
   std::cout << "- Schedule Halving (0) or Reset (1): " << config.srResetMode << std::endl;
+
+  std::cout << "\nMAC-specific parameters:" << std::endl;
+  std::cout << "-aSlot: " << aSlot << std::endl;
+  std::cout << "-SIFS: " << SIFS << std::endl;
+  std::cout << "-EIFSnoDIFS: " << EIFSnoDIFS << std::endl;
+  std::cout << "-ackTimeout: " << ackTimeout << std::endl;
 }
 
 void
