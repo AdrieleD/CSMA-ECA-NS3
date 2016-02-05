@@ -51,6 +51,10 @@ public:
     : m_txop (txop)
   {
   }
+    virtual void DoDeterministicBackoff (uint32_t cw)
+    {
+      m_txop->deterministicBackoff (cw);
+    }
 
 private:
   virtual void DoNotifyAccessGranted (void)
@@ -748,7 +752,16 @@ void
 EdcaTxopN::NotifyCollision (void)
 {
   NS_LOG_FUNCTION (this);
-  m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+  if (m_manager->GetEnvironmentForECA () && m_manager->GetStickiness () > 0)
+    {
+      NS_ASSERT (m_manager->GetStickiness () > 0);
+      m_dcf->DoDeterministicBackoff (m_dcf->GetCw ());
+    }
+  else
+    {
+      m_dcf->ResetCw ();
+      m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
+    }
   RestartAccessIfNeeded ();
 }
 
@@ -922,7 +935,7 @@ EdcaTxopN::GotAck (double snr, WifiMode txMode)
                   if (!m_srBeingFilled)
                     {
                       SetScheduleResetThreshold ();
-                      uint32_t size = (m_dcf->GetCw () / 2) + 2;
+                      uint32_t size = ((m_dcf->GetCw () + 1) / 2) + 1;
                       m_manager->StartNewEcaBitmap (size);
                       m_srBeingFilled = true;
                       m_manager->SetFillingTheBitmap ();

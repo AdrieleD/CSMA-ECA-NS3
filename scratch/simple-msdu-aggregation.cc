@@ -383,7 +383,7 @@ int main (int argc, char *argv[])
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
   std::string dataRate ("HtMcs7");
   std::string controlRate ("HtMcs7");
-  std::string ackMode ("HtMcs7");
+  std::string ackMode ("ErpOfdmRate54Mbps");
   bool verbose = false;
   bool eca = true;
   bool hysteresis = false;
@@ -506,9 +506,12 @@ int main (int argc, char *argv[])
    * According to wifi-phy.cc
    * HtMcs7: 20 MHz, 72.2  Mbps
    * HtMcs0: 20 MHz, 7.2 Mbps
+   * ErpOfdmRate54Mbps: 20 MHz, 54 Mbps. NS3 does not support Ht mcs for Acks.
   */
 
-  wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", StringValue (dataRate), "ControlMode", StringValue (controlRate));
+  wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", StringValue (dataRate), 
+                                                                "ControlMode", StringValue (controlRate),
+                                                                "AckMode", StringValue (dataRate));
   HtWifiMacHelper mac = HtWifiMacHelper::Default ();
 
   Ssid ssid = Ssid ("simple-msdu-aggregation");

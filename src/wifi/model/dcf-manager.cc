@@ -1054,15 +1054,15 @@ void
 DcfManager::UpdateEcaBitmap (DcfState *state)
 {
   uint32_t position = GetCurrentBitmapPosition (state);
+  MY_DEBUG ("pos: " << position << ". size: " << m_ecaBitmap.size ());
+  NS_ASSERT (position < m_ecaBitmap.size ());
   if (isNextSlotBusy ())
     {
-      NS_ASSERT (position < m_ecaBitmap.size ());
       m_ecaBitmap.at(position) = true;
       MY_DEBUG ("marking bitmap position: " << position << " as busy");
     }
   else
     {
-      if (position < m_ecaBitmap.size ())
         MY_DEBUG ("Slot #" << position << " was free");
     }
 
@@ -1075,13 +1075,20 @@ DcfManager::UpdateEcaBitmap (DcfState *state)
 uint32_t
 DcfManager::GetCurrentBitmapPosition (DcfState *state)
 {
-  uint32_t position = 0;
   if (GetScheduleReset ())
   {
+    uint32_t position = 0;
     position = state->GetBackoffSlots ();
+    MY_DEBUG ("pos: " << position << ". size: " << m_ecaBitmap.size ());
     NS_ASSERT (position < m_ecaBitmap.size ());
+    MY_DEBUG ("Assert ok " << position);
+    return position;
   }
-  return position;
+  else
+    {
+      MY_DEBUG ("Not doing Schedule Reset");
+      return m_ecaBitmap.size ();
+    }
 }
 
 bool
