@@ -82,6 +82,7 @@ struct sim_config
   uint32_t EIFSnoDIFS;
   uint32_t ackTimeout;
   uint32_t maxMsdus;
+  double frameMinFer;
 };
 struct sim_config config;
 
@@ -173,16 +174,12 @@ finishSetup (struct sim_config &config)
     Ptr<WifiMac> wifiMac = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
       ->GetMac ();
     Ptr<MacLow> macLow = dca->Low ();
+    Ptr<YansWifiPhy> phy = allNodes.Get(i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
+      GetPhy ()->GetObject<YansWifiPhy> ();
 
-    /* Mainly for displaying */
-    Cwmin = dca->GetMinCw ();
-    Cwmax = dca->GetMaxCw ();
-    aSlot = wifiMac->GetSlot ().GetMicroSeconds ();
-    SIFS = wifiMac->GetSifs ().GetMicroSeconds ();
-    EIFSnoDIFS = wifiMac->GetEifsNoDifs ().GetMicroSeconds ();
-    ackTimeout = wifiMac->GetAckTimeout ().GetMicroSeconds ();
-
-    /* </Mainly for displaying> */
+    /* Setting the FER */
+    if (config.frameMinFer > 0)
+      phy->SetFrameMinFer(config.frameMinFer);  
 
     if (config.eca)
     {
@@ -194,9 +191,9 @@ finishSetup (struct sim_config &config)
           dca->SetFairShare ();
 
       /* Setting the Ack timeout and EIFS no DIFS to be equal to DIFS */
-      if (config.EIFSnoDIFS != 314)
+      if (config.EIFSnoDIFS != 1)
         wifiMac->SetEifsNoDifs (MicroSeconds (config.EIFSnoDIFS));
-      if (config.ackTimeout != 340)
+      if (config.ackTimeout != 1)
         wifiMac->SetAckTimeout (MicroSeconds (config.ackTimeout));
 
       /* Setting all the nasty stuff for Schedule Reset */      
@@ -211,6 +208,14 @@ finishSetup (struct sim_config &config)
             dca->SetScheduleResetMode (); //Halving or reset?
         }
     }
+    /* Mainly for displaying */
+    Cwmin = dca->GetMinCw ();
+    Cwmax = dca->GetMaxCw ();
+    aSlot = wifiMac->GetSlot ().GetMicroSeconds ();
+    SIFS = wifiMac->GetSifs ().GetMicroSeconds ();
+    EIFSnoDIFS = wifiMac->GetEifsNoDifs ().GetMicroSeconds ();
+    ackTimeout = wifiMac->GetAckTimeout ().GetMicroSeconds ();
+    /* </Mainly for displaying> */
 
   }
   std::cout << "- nWifi: " << config.nWifi << std::endl;
@@ -223,10 +228,12 @@ finishSetup (struct sim_config &config)
   std::cout << "\t-Max aMSDU: " << config.maxMsdus << std::endl;
   std::cout << "- Schedule Reduction: " << config.bitmap << std::endl;
   std::cout << "- Schedule Halving (0) or Reset (1): " << config.srResetMode << std::endl;
+  std::cout << "-frameMinFer: " << config.frameMinFer << std::endl;
 
   std::cout << "\nMAC-specific parameters:" << std::endl;
   std::cout << "-aSlot: " << aSlot << std::endl;
   std::cout << "-SIFS: " << SIFS << std::endl;
+  std::cout << "-DIFS: " << 2 * aSlot + SIFS << std::endl;
   std::cout << "-EIFSnoDIFS: " << EIFSnoDIFS << std::endl;
   std::cout << "-ackTimeout: " << ackTimeout << std::endl;
 }
@@ -389,6 +396,13 @@ TraceFsAggregated(Ptr<OutputStreamWrapper> stream, std::string context, uint16_t
     }
 }
 
+void
+TraceErrorFrames(Ptr<OutputStreamWrapper> stream, struct sim_results *results,
+  std::string context, uint64_t oldValue, uint64_t newValue)
+{
+  results->errorFrames += 1;
+}
+
 NS_LOG_COMPONENT_DEFINE ("SimpleMsduAggregation");
 
 int main (int argc, char *argv[])
@@ -413,11 +427,12 @@ int main (int argc, char *argv[])
   bool srConservative = false;
   uint32_t srActivationThreshold = 1;
   bool srResetMode = false;
-  uint32_t EIFSnoDIFS = 314;
-  uint32_t ackTimeout = 340;
+  uint32_t EIFSnoDIFS = 1;
+  uint32_t ackTimeout = 1;
   int32_t seed = -1;
   uint32_t nMsdus = 1;
   uint32_t maxMsdus = 1024/16; /* Cwmax / Cwmin */
+  double frameMinFer = 0.0; /* from 0 to 1 */
 
   std::string resultsName ("results2.log");
   std::string txLog ("tx.log");
@@ -446,6 +461,7 @@ int main (int argc, char *argv[])
   cmd.AddValue ("seed", "RNG simulation seed", seed);
   cmd.AddValue ("nWifi", "Number of Wifi clients", nWifi);
   cmd.AddValue ("verbose", "Logging", verbose);
+  cmd.AddValue ("frameMinFer", "Frame error rate at PHY level", frameMinFer);
 
   cmd.Parse (argc, argv);
 
@@ -464,6 +480,7 @@ int main (int argc, char *argv[])
   config.EIFSnoDIFS = EIFSnoDIFS;
   config.ackTimeout = ackTimeout;
   config.maxMsdus = maxMsdus;
+  config.frameMinFer = frameMinFer;
 
   results.srAttempts = 0;
   results.srFails = 0;
@@ -619,6 +636,7 @@ int main (int argc, char *argv[])
       LogComponentEnable ("DcfManager", LOG_LEVEL_DEBUG);
       LogComponentEnable ("MsduStandardAggregator", LOG_LEVEL_DEBUG);
       LogComponentEnable ("MsduAggregator", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
     }
 
   /* Connecting the trace sources to their respective sinks */
@@ -627,8 +645,7 @@ int main (int argc, char *argv[])
       std::ostringstream n;
       Ptr<EdcaTxopN> dca = config.allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
       Ptr<DcfManager> dcfManager = config.allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
-      // Ptr<YansWifiPhy> phy = allNodes.Get(i)->GetDevice(0)->GetObject<WifiNetDevice>()->
-      //     GetPhy()->GetObject<YansWifiPhy>();
+      Ptr<YansWifiPhy> phy = config.allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetPhy ()->GetObject<YansWifiPhy> ();
 
       n << i;
       dca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results));
@@ -641,7 +658,7 @@ int main (int argc, char *argv[])
       dca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
       dca->TraceConnect ("FsAggregated", n.str (), MakeBoundCallback (&TraceFsAggregated, fs_stream));
 
-      // phy->TraceConnect ("FramesWithErrors", n.str (), MakeBoundCallback (&TraceErrorFrames, tx_stream, &results));
+      phy->TraceConnect ("FramesWithErrors", n.str (), MakeBoundCallback (&TraceErrorFrames, tx_stream, &results));
 
       dcfManager->TraceConnect ("LastTxDuration", n.str (), MakeBoundCallback (&TraceLastTxDuration, tx_stream));
     }

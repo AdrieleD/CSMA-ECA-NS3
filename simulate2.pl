@@ -5,7 +5,10 @@ my $nMin = $ARGV[0];
 my $rep = 1;
 my $simulationTime = 20;
 my $seed = -1; #Keep -1 to leave unchanged
-my $stickiness = 0;
+my $stickiness = 1;
+my $EIFSnoDIFS = 1; #0
+my $AckTimeout = 1; #30 for 54 Mbps Ofdm
+my $frameMinFer = 0.1;
 
 my $verbose = false;
 my $eca = false;
@@ -52,7 +55,10 @@ if( $nMax > $nMin ){
 				--bitmap=$bitmap
 				--srResetMode=$srResetMode
 				--srConservative=$srConservative
-				--fairShare=$fairShare\"");
+				--fairShare=$fairShare
+				--EIFSnoDIFS=$EIFSnoDIFS
+				--AckTimeout=$AckTimeout
+				--frameMinFer=$frameMinFer\"");
 			my @outPut = "@command @addition";
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
@@ -76,7 +82,10 @@ if( $nMax > $nMin ){
 				--bitmap=$bitmap
 				--srResetMode=$srResetMode
 				--srConservative=$srConservative
-				--fairShare=$fairShare\"");
+				--fairShare=$fairShare
+				--EIFSnoDIFS=$EIFSnoDIFS
+				--AckTimeout=$AckTimeout
+				--frameMinFer=$frameMinFer\"");
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
 			system(@outPut);

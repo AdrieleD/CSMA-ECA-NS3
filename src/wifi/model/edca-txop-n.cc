@@ -1038,6 +1038,7 @@ EdcaTxopN::MissedAck (void)
           m_currentPacket = 0;
         }
       m_dcf->ResetCw ();
+      m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
     }
   else
     {
