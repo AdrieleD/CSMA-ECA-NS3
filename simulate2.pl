@@ -3,12 +3,12 @@ use List::Util qw(first max maxstr min minstr reduce shuffle sum);
 my $nMax = $ARGV[1];
 my $nMin = $ARGV[0];
 my $rep = 1;
-my $simulationTime = 20;
+my $simulationTime = 2;
 my $seed = -1; #Keep -1 to leave unchanged
-my $stickiness = 1;
-my $EIFSnoDIFS = 1; #0
-my $AckTimeout = 1; #30 for 54 Mbps Ofdm
-my $frameMinFer = 0.1;
+my $stickiness = 0;
+my $EIFSnoDIFS = 1; #see collisions.numbers
+my $AckTimeout = 1; 
+my $frameMinFer = 0;
 
 my $verbose = false;
 my $eca = false;
@@ -18,6 +18,7 @@ my $fairShare = false;
 my $bitmap = false;
 my $srConservative = false;
 my $srResetMode = false;
+my $elevenAc = false; #sets 802.11ac mcs
 my @command = './waf --cwd=tmp2/ --run "scratch/simple-msdu-aggregation';
 
 foreach (@ARGV){
@@ -37,6 +38,8 @@ foreach (@ARGV){
 		if $_ eq '--srConservative';
 	$fairShare = true
 		if $_ eq '--fairShare';
+	$elevenAc = true
+		if $_ eq '--elevenAc';
 }
 
 if( $nMax > $nMin ){
@@ -58,7 +61,8 @@ if( $nMax > $nMin ){
 				--fairShare=$fairShare
 				--EIFSnoDIFS=$EIFSnoDIFS
 				--AckTimeout=$AckTimeout
-				--frameMinFer=$frameMinFer\"");
+				--frameMinFer=$frameMinFer
+				--elevenAc=$elevenAc\"");
 			my @outPut = "@command @addition";
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
@@ -85,7 +89,8 @@ if( $nMax > $nMin ){
 				--fairShare=$fairShare
 				--EIFSnoDIFS=$EIFSnoDIFS
 				--AckTimeout=$AckTimeout
-				--frameMinFer=$frameMinFer\"");
+				--frameMinFer=$frameMinFer
+				--elevenAc=$elevenAc\"");
 			print("###Simulating iteration $j of $rep\n");
 			print ("@outPut\n");
 			system(@outPut);

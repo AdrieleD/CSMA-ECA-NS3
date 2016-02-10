@@ -658,7 +658,9 @@ DcfManager::GetBackoffStartFor (DcfState *state)
 Time
 DcfManager::GetBackoffEndFor (DcfState *state)
 {
-  return GetBackoffStartFor (state) + MicroSeconds (state->GetBackoffSlots () * m_slotTimeUs);
+  Time end = GetBackoffStartFor (state) + MicroSeconds (state->GetBackoffSlots () * m_slotTimeUs);
+  MY_DEBUG ("backoff end: " << end.GetMicroSeconds ());
+  return end;
 }
 
 void
@@ -996,18 +998,12 @@ void
 DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap, uint32_t stickiness, bool dynStick)
 {
   m_isECA = true;
-  if (hysteresis == true)
-    {
-      NS_LOG_DEBUG ("Setting hysteresis");
-      m_hysteresis = true;
-      m_dynamicStickiness = dynStick;
-      if (stickiness > 0)
-        {
-          m_stickiness = stickiness;
-          m_resetStickiness = stickiness;
-        }
-        
-    }
+  NS_LOG_DEBUG ("Setting hysteresis");
+  m_hysteresis = hysteresis;
+  m_dynamicStickiness = dynStick;
+  m_stickiness = stickiness;
+  m_resetStickiness = stickiness;
+
   if (bitmap == true)
     {
       m_scheduleReset = true;

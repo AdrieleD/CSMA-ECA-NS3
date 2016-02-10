@@ -51,10 +51,10 @@ public:
     : m_txop (txop)
   {
   }
-    virtual void DoDeterministicBackoff (uint32_t cw)
-    {
-      m_txop->deterministicBackoff (cw);
-    }
+    // virtual void DoDeterministicBackoff (uint32_t cw)
+    // {
+    //   m_txop->StartBackoffNow (m_txop->deterministicBackoff (cw));
+    // }
 
 private:
   virtual void DoNotifyAccessGranted (void)
@@ -254,6 +254,9 @@ EdcaTxopN::GetTypeId (void)
     .AddTraceSource ("TxFailures", "Incremented for each missed ACK",
                     MakeTraceSourceAccessor (&EdcaTxopN::m_failures),
                     "ns3::Traced::Value::Uint64Callback")
+    .AddTraceSource ("TxCollisions", "Incremented for tx while channel busy",
+                    MakeTraceSourceAccessor (&EdcaTxopN::m_collisions),
+                    "ns3::Traced::Value::Uint64Callback")
     .AddTraceSource ("TxSuccesses", "Incremented for each ACK",
                     MakeTraceSourceAccessor (&EdcaTxopN::m_successes),
                     "ns3::Traced::Value::Uint64Callback")
@@ -298,6 +301,7 @@ EdcaTxopN::EdcaTxopN ()
     m_scheduleRecentlyReduced (false),
     m_srPreviousCw (0),
     m_failures (0),
+    m_collisions (0),
     m_successes (0),
     m_txAttempts (0),
     m_boCounter (0xFFFFFFFF),
@@ -752,15 +756,18 @@ void
 EdcaTxopN::NotifyCollision (void)
 {
   NS_LOG_FUNCTION (this);
+  NS_LOG_DEBUG ("Notifying collision. Stickiness " << m_manager->GetStickiness ());
   if (m_manager->GetEnvironmentForECA () && m_manager->GetStickiness () > 0)
     {
       NS_ASSERT (m_manager->GetStickiness () > 0);
-      m_dcf->DoDeterministicBackoff (m_dcf->GetCw ());
+      m_manager->ReduceStickiness ();
+      m_dcf->StartBackoffNow (deterministicBackoff (m_dcf->GetCw ()));
     }
   else
     {
       if (m_manager->GetScheduleReset ())
         ResetSrMetrics ();
+      m_collisions++;
       m_dcf->ResetCw ();
       m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
     }
@@ -1761,6 +1768,7 @@ EdcaTxopN::ResetStats (void)
   m_fsAggregated = 0xFFFF;
   m_fairShare = false;
   m_failures = 0;
+  m_collisions = 0;
   m_successes = 0;
   m_txAttempts = 0;
   m_boCounter = 0xFFFFFFFF;

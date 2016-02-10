@@ -43,9 +43,9 @@
 //   Wifi 192.168.1.0
 //
 //        AP
-//   *    *
-//   |    |
-//   n1   n2
+//   *    *   *
+//   |    |   |
+//   n1   n2  n_n
 //
 // Packets in this simulation aren't marked with a QosTag so they are considered
 // belonging to BestEffort Access Class (AC_BE).
@@ -57,6 +57,7 @@
  #define BO 4 //assigned backoff
  #define txDUR 5 //last Tx duration
  #define FSAGG 6 //# of frames aggregated
+ #define COLTX 7 //# Tx while channel busy
 
 using namespace ns3;
 
@@ -83,6 +84,8 @@ struct sim_config
   uint32_t ackTimeout;
   uint32_t maxMsdus;
   double frameMinFer;
+  bool elevenAc;
+  uint32_t channelWidth;
 };
 struct sim_config config;
 
@@ -90,9 +93,11 @@ struct sim_results{
   uint32_t stas;
   std::vector<uint64_t> sxTx;
   std::vector<uint64_t> failTx;
+  std::vector<uint64_t> colTx;
   std::vector<uint64_t> txAttempts;
   std::vector<uint64_t> udpClientSentPackets;
   uint64_t lastCollision;
+  uint64_t lastFailure;
   uint32_t srAttempts;
   uint32_t srReductions;
   uint32_t srFails;
@@ -215,6 +220,7 @@ finishSetup (struct sim_config &config)
     SIFS = wifiMac->GetSifs ().GetMicroSeconds ();
     EIFSnoDIFS = wifiMac->GetEifsNoDifs ().GetMicroSeconds ();
     ackTimeout = wifiMac->GetAckTimeout ().GetMicroSeconds ();
+    config.channelWidth = phy->GetChannelWidth ();
     /* </Mainly for displaying> */
 
   }
@@ -229,8 +235,10 @@ finishSetup (struct sim_config &config)
   std::cout << "- Schedule Reduction: " << config.bitmap << std::endl;
   std::cout << "- Schedule Halving (0) or Reset (1): " << config.srResetMode << std::endl;
   std::cout << "-frameMinFer: " << config.frameMinFer << std::endl;
+  std::cout << "-channelWidth: " << config.channelWidth << std::endl;
 
   std::cout << "\nMAC-specific parameters:" << std::endl;
+  std::cout << "-802.11ac: " << config.elevenAc << std::endl;
   std::cout << "-aSlot: " << aSlot << std::endl;
   std::cout << "-SIFS: " << SIFS << std::endl;
   std::cout << "-DIFS: " << 2 * aSlot + SIFS << std::endl;
@@ -258,7 +266,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
       uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.Get (i))->GetReceived ();
       results->udpClientSentPackets.at (i) = totalPacketsThrough;
       throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
-      col += results->failTx.at (i);
+      col += results->failTx.at (i) + results->colTx.at (i);
       attempts += results->txAttempts.at (i);
       sx += results->sxTx.at (i);
       if (results->sxTx.at (i) > 0)
@@ -267,7 +275,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
   std::cout << "- Throughput: " << throughput << " Mbit/s" << '\n';
   double colFrac = 0;
   if (col > 0) colFrac = col/(sx + col);
-  std::cout << "-Fraction of tx resulting in collisions: " << colFrac << ". " << attempts << " attempts" << std::endl;
+  std::cout << "-Fraction of failed transmissions: " << colFrac << ". " << attempts << " attempts" << std::endl;
   std::cout << "\t-Last collision: " << results->lastCollision * 1e-6 << " secs.\n" << std::endl;
   double jfi = GetJFI (results);
   std::cout << "-JFI: " << jfi << std::endl;
@@ -300,6 +308,15 @@ TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std:
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
   results->failTx.at (std::stoi (context)) ++;
+  results->lastFailure = Simulator::Now().GetMicroSeconds();
+}
+
+void
+TraceCollisions(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue){
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  *stream->GetStream () << m_now << " " << context << " " << COLTX << " " << newValue << std::endl;
+  results->colTx.at (std::stoi (context)) ++;
   results->lastCollision = Simulator::Now().GetMicroSeconds();
 }
 
@@ -416,6 +433,8 @@ int main (int argc, char *argv[])
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
   std::string dataRate ("HtMcs7");
   std::string controlRate ("HtMcs7");
+  uint32_t dataRateAc  = 8; // Vht mcs
+  uint32_t controlRateAc = 8; // Vht mcs
   std::string ackMode ("ErpOfdmRate54Mbps");
   bool verbose = false;
   bool eca = true;
@@ -433,6 +452,9 @@ int main (int argc, char *argv[])
   uint32_t nMsdus = 1;
   uint32_t maxMsdus = 1024/16; /* Cwmax / Cwmin */
   double frameMinFer = 0.0; /* from 0 to 1 */
+  bool elevenAc = false;
+  bool shortGuardInterval = true;
+  uint32_t channelWidth = 160;
 
   std::string resultsName ("results2.log");
   std::string txLog ("tx.log");
@@ -460,8 +482,8 @@ int main (int argc, char *argv[])
   cmd.AddValue ("verbose", "Logging", verbose);
   cmd.AddValue ("seed", "RNG simulation seed", seed);
   cmd.AddValue ("nWifi", "Number of Wifi clients", nWifi);
-  cmd.AddValue ("verbose", "Logging", verbose);
   cmd.AddValue ("frameMinFer", "Frame error rate at PHY level", frameMinFer);
+  cmd.AddValue ("elevenAc", "802.elevenAc MCS", elevenAc);
 
   cmd.Parse (argc, argv);
 
@@ -481,6 +503,8 @@ int main (int argc, char *argv[])
   config.ackTimeout = ackTimeout;
   config.maxMsdus = maxMsdus;
   config.frameMinFer = frameMinFer;
+  config.elevenAc = elevenAc;
+  config.channelWidth = channelWidth;
 
   results.srAttempts = 0;
   results.srFails = 0;
@@ -488,6 +512,7 @@ int main (int argc, char *argv[])
   results.stas = nWifi;
   results.sxTx.assign (results.stas, 0);
   results.failTx.assign (results.stas, 0);
+  results.colTx.assign (results.stas, 0);
   results.txAttempts.assign (results.stas, 0);
   results.udpClientSentPackets.assign (results.stas, 0);
   results.sumTimeBetweenSxTx.assign (results.stas, NanoSeconds (0));
@@ -536,7 +561,18 @@ int main (int argc, char *argv[])
   phy.SetChannel (channel.Create ());
 
   WifiHelper wifi = WifiHelper::Default ();
-  wifi.SetStandard (WIFI_PHY_STANDARD_80211n_5GHZ);
+  if (elevenAc)
+    {
+      // Set guard interval
+      phy.Set ("ShortGuardEnabled", BooleanValue (shortGuardInterval));
+      wifi.SetStandard (WIFI_PHY_STANDARD_80211ac);
+      StringValue dataRate = VhtWifiMacHelper::DataRateForMcs (dataRateAc);
+      StringValue controlRate = VhtWifiMacHelper::DataRateForMcs (controlRateAc);
+    }
+  else
+    {
+      wifi.SetStandard (WIFI_PHY_STANDARD_80211n_5GHZ);
+    }
   
   /*
    * According to wifi-phy.cc
@@ -548,7 +584,10 @@ int main (int argc, char *argv[])
   wifi.SetRemoteStationManager ("ns3::ConstantRateWifiManager", "DataMode", StringValue (dataRate), 
                                                                 "ControlMode", StringValue (controlRate),
                                                                 "AckMode", StringValue (dataRate));
-  HtWifiMacHelper mac = HtWifiMacHelper::Default ();
+  
+  VhtWifiMacHelper mac = VhtWifiMacHelper::Default ();
+  if (!elevenAc)
+    HtWifiMacHelper mac = HtWifiMacHelper::Default ();
 
   Ssid ssid = Ssid ("simple-msdu-aggregation");
   mac.SetType ("ns3::StaWifiMac",
@@ -576,6 +615,9 @@ int main (int argc, char *argv[])
   NetDeviceContainer allDevices;
   allDevices.Add (apDevice);
   allDevices.Add (staDevice);
+
+  // Set channel width
+  Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue (channelWidth));
 
   /* Setting mobility model */
   MobilityHelper mobility;
@@ -649,6 +691,7 @@ int main (int argc, char *argv[])
 
       n << i;
       dca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results));
+      dca->TraceConnect ("TxCollisions",n.str (), MakeBoundCallback (&TraceCollisions, tx_stream, &results));
       dca->TraceConnect ("TxSuccesses", n.str (), MakeBoundCallback (&TraceSuccesses, tx_stream, &results));
       dca->TraceConnect ("TxAttempts", n.str (), MakeBoundCallback (&TraceTxAttempts, tx_stream, &results));
       dca->TraceConnect ("BackoffCounter", n.str (), MakeBoundCallback (&TraceAssignedBackoff, backoff_stream));  

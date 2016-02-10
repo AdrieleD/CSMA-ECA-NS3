@@ -1878,6 +1878,7 @@ MacLow::StartDataTxTimers (WifiTxVector dataTxVector)
       Time timerDelay = txDuration + GetAckTimeout ();
       NS_ASSERT (m_normalAckTimeoutEvent.IsExpired ());
       MY_DEBUG ("Setting timer for normal Ack timeout: " << GetAckTimeout ());
+      MY_DEBUG ("transmission duration: " << txDuration.GetNanoSeconds () << ".0ns");
       NotifyAckTimeoutStartNow (timerDelay);
       m_normalAckTimeoutEvent = Simulator::Schedule (timerDelay, &MacLow::NormalAckTimeout, this);
     }

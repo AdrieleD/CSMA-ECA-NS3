@@ -602,6 +602,7 @@ private:
 
 
   TracedValue<uint64_t> m_failures;
+  TracedValue<uint64_t> m_collisions;
   TracedValue<uint64_t> m_successes;
   TracedValue<uint64_t> m_txAttempts;
   TracedValue<uint32_t> m_boCounter;
