@@ -428,7 +428,7 @@ int main (int argc, char *argv[])
   uint32_t payloadSize = 1470; //bytes
   uint64_t simulationTime = 3; //seconds
   bool enableRts = false;
-  uint32_t txRate = 73;
+  uint32_t txRate = 83;
   uint32_t destPort = 10000;
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
   std::string dataRate ("HtMcs7");
@@ -454,7 +454,7 @@ int main (int argc, char *argv[])
   double frameMinFer = 0.0; /* from 0 to 1 */
   bool elevenAc = false;
   bool shortGuardInterval = true;
-  uint32_t channelWidth = 160;
+  uint32_t channelWidth = 20;
 
   std::string resultsName ("results2.log");
   std::string txLog ("tx.log");
@@ -484,6 +484,7 @@ int main (int argc, char *argv[])
   cmd.AddValue ("nWifi", "Number of Wifi clients", nWifi);
   cmd.AddValue ("frameMinFer", "Frame error rate at PHY level", frameMinFer);
   cmd.AddValue ("elevenAc", "802.elevenAc MCS", elevenAc);
+  cmd.AddValue ("channelWidth", "channelWidth", channelWidth);
 
   cmd.Parse (argc, argv);
 
