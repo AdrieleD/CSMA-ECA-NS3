@@ -52,11 +52,21 @@
 #include "ns3/csma-module.h"
 #include "ns3/internet-module.h"
 #include "ns3/bridge-helper.h"
- #include "ns3/assert.h"
+#include "ns3/assert.h"
 #include <vector>
 #include <stdint.h>
 #include <sstream>
 #include <fstream>
+
+
+//Defining log codes for interesting metrics
+#define SXTX 1 //successes
+#define FAILTX 2 //failures
+#define TX 3 //attempts
+#define BO 4 //assigned backoff
+#define txDUR 5 //last Tx duration
+#define FSAGG 6 //# of frames aggregated
+#define COLTX 7 //# Tx while channel busy
 
 using namespace ns3;
 
@@ -69,36 +79,78 @@ struct sim_config
   uint64_t simulationTime;
   std::vector<ApplicationContainer> servers;
   uint32_t payloadSize;
+  uint32_t channelWidth;
 };
 
 struct sim_config config;
 
+struct sim_results{
+  uint32_t stas;
+  std::vector< std::vector<uint64_t> > failTx;
+  uint64_t lastFailure;
+};
+struct sim_results results;
+
 
 void
-finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream)
+finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results)
 {
   NS_ASSERT (config.servers.size () == config.nWifis);
   for (uint32_t i = 0; i < config.nWifis; i++)
     {
       double throughput = 0.0;
+      double totalFails = 0.0;
       std::cout << "\nResults for Wifi: " << i << std::endl;
       for (uint32_t j = 0; j < config.servers.at (i).GetN (); j++)
         {
           uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.at (i).Get (j))->GetReceived ();
           throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
-          std::cout << "Sta-" << j << ": " << totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0) << std::endl;
+          totalFails += results->failTx.at (i).at (j);
+
+          std::cout << "\tSta-" << j << ": " << totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0) << std::endl;
+          std::cout << "\tFailures: " << results->failTx.at (i).at (j) << std::endl;
         }
         std::cout << "-Throughput: " << throughput << std::endl;
+        std::cout << "-Total Failures: " << totalFails << std::endl;
     }
+}
+
+void
+TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue){
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  
+  size_t pos = 0;
+  std::string token;
+  std::string delimeter = "->";
+  std::string wlan;
+  std::string n;
+  while ( (pos = context.find(delimeter)) != std::string::npos)
+    {
+      token = context.substr (0, pos);
+      if (wlan.empty ())
+        {
+          wlan = token;
+        }
+      else
+        {
+          n = token;
+        }
+    }
+
+  *stream->GetStream () << m_now << " " << wlan << " " << n << " " << FAILTX << " " << newValue << std::endl;
+  results->failTx.at (std::stoi(wlan)).at (std::stoi (n)) ++;
+  // // results->lastFailure = Simulator::Now().GetMicroSeconds();
 }
 
 int main (int argc, char *argv[])
 {
-  uint32_t nWifis = 2;
-  uint32_t nStas = 2;
-  bool sendIp = true;
+  uint32_t nWifis = 5;
+  uint32_t nStas = 20;
+  bool sendIp = false;
+  uint32_t channelWidth = 20;
   bool writeMobility = false;
-  double deltaWifiX = 2.0;
+  double deltaWifiX = 20.0;
   bool elevenAc = false;
   bool shortGuardInterval = true;
   uint32_t dataRateAc  = 8; // Vht mcs
@@ -115,8 +167,11 @@ int main (int argc, char *argv[])
   uint64_t simulationTime = 3; //seconds
   uint32_t txRate = 83;
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
+  bool verbose = false;
 
   std::string resultsName ("results3.log");
+  std::string txLog ("tx.log");
+  std::string backoffLog ("backoff.log");
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of wifi networks", nWifis);
@@ -126,6 +181,10 @@ int main (int argc, char *argv[])
   cmd.AddValue ("deltaWifiX", "Separation between two nWifis", deltaWifiX);
   cmd.AddValue ("randomWalk", "Random walk of Stas", randomWalk);
   cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
+  cmd.AddValue ("channelWidth", "channelWidth", channelWidth);
+  cmd.AddValue ("elevenAc", "802.elevenAc MCS", elevenAc);
+  cmd.AddValue ("seed", "RNG simulation seed", seed);
+  cmd.AddValue ("verbose", "Logging", verbose);
   cmd.Parse (argc, argv);
 
   if (!enableRts)
@@ -146,6 +205,8 @@ int main (int argc, char *argv[])
   /* Creating the log streams */
   AsciiTraceHelper asciiTraceHelper;
   Ptr<OutputStreamWrapper> results_stream = asciiTraceHelper.CreateFileStream (resultsName, __gnu_cxx::ios_base::app);
+  Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream (txLog);
+  Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
 
   NodeContainer backboneNodes;
   NetDeviceContainer backboneDevices;
@@ -157,18 +218,21 @@ int main (int argc, char *argv[])
   std::vector<Ipv4InterfaceContainer> apInterfaces;
   std::vector<Ipv4InterfaceContainer> apBridgeInterfaces;
 
-
-
   config.simulationTime = simulationTime;
   config.nWifis = nWifis;
   config.nStas = nStas;
   config.deltaWifiX = deltaWifiX;
   config.payloadSize = payloadSize;
+  config.channelWidth = channelWidth;
+
+  std::vector<uint64_t> zeroth;
+  zeroth.assign (nStas, 0);
+  results.failTx.assign (nWifis, zeroth);
 
   InternetStackHelper stack;
   CsmaHelper csma;
   Ipv4AddressHelper ip;
-  ip.SetBase ("192.168.0.0", "255.255.255.0");
+  ip.SetBase ("10.0.0.0", "255.0.0.0");
 
   /* Installing Csma capability on the bridges */
   backboneNodes.Create (nWifis);
@@ -336,6 +400,11 @@ int main (int argc, char *argv[])
       wifiX += deltaWifiX;
     }
 
+    // Set channel width
+    Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue (channelWidth));
+
+
+
     if (!udpTest)
       {
         Address dest;
@@ -362,17 +431,45 @@ int main (int argc, char *argv[])
         apps.Stop (Seconds (3.0));
       }
 
-  wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[0]);
-  wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[1]);
+  // wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[0]);
+  // wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[1]);
 
-  if (writeMobility)
+  // if (writeMobility)
+  //   {
+  //     AsciiTraceHelper ascii;
+  //     MobilityHelper::EnableAsciiAll (ascii.CreateFileStream ("wifi-wired-bridging.mob"));
+  //   }
+
+
+  /* Logging and Tracing artifacts */
+  if (verbose)
     {
-      AsciiTraceHelper ascii;
-      MobilityHelper::EnableAsciiAll (ascii.CreateFileStream ("wifi-wired-bridging.mob"));
+      LogComponentEnable ("EdcaTxopN", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("DcfManager", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("MsduStandardAggregator", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("MsduAggregator", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
     }
 
+  for (uint32_t i = 0; i < staNodes.size (); i ++)
+    {
+      std::cout << "Getting trace sources for WLAN-" << i << std::cout;
+      for (uint32_t j = 0; j < staNodes.at (i).GetN (); j++)
+        {
+          std::ostringstream n;
+          Ptr<EdcaTxopN> dca = staNodes.at (i).Get (j)->GetDevice (1)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
+          // Ptr<DcfManager> dcfManager = staNodes.at (i).Get (j)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+          // Ptr<YansWifiPhy> phy = staNodes.at (i).Get (j)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetPhy ()->GetObject<YansWifiPhy> ();
+          n << i << "->" << j;
+
+          dca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results)); 
+        }
+    }
+
+
+
   Simulator::Stop (Seconds (simulationTime + 1));
-  Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream);
+  Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results);
 
   Simulator::Run ();
   Simulator::Destroy ();
