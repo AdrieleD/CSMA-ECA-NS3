@@ -120,33 +120,18 @@ TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std:
   uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
   
-  size_t pos = 0;
-  std::string token;
-  std::string delimeter = "->";
-  std::string wlan;
-  std::string n;
-  while ( (pos = context.find(delimeter)) != std::string::npos)
-    {
-      token = context.substr (0, pos);
-      if (wlan.empty ())
-        {
-          wlan = token;
-        }
-      else
-        {
-          n = token;
-        }
-    }
+  std::cout << "Something " << m_now << std::endl;
 
-  *stream->GetStream () << m_now << " " << wlan << " " << n << " " << FAILTX << " " << newValue << std::endl;
-  results->failTx.at (std::stoi(wlan)).at (std::stoi (n)) ++;
+  // *stream->GetStream () << m_now << " " <<  n << " " << FAILTX << " " << newValue << std::endl;
+  
+  // results->failTx.at (std::stoi(wlan)).at (std::stoi (n)) ++;
   // // results->lastFailure = Simulator::Now().GetMicroSeconds();
 }
 
 int main (int argc, char *argv[])
 {
-  uint32_t nWifis = 5;
-  uint32_t nStas = 20;
+  uint32_t nWifis = 1;
+  uint32_t nStas = 2;
   bool sendIp = false;
   uint32_t channelWidth = 20;
   bool writeMobility = false;
@@ -162,7 +147,6 @@ int main (int argc, char *argv[])
   uint32_t payloadSize = 1470; //bytes
   bool enableRts = false;
   int32_t seed = -1;
-  bool udpTest = true;
   uint32_t destPort = 1000;
   uint64_t simulationTime = 3; //seconds
   uint32_t txRate = 83;
@@ -217,6 +201,7 @@ int main (int argc, char *argv[])
   std::vector<Ipv4InterfaceContainer> staInterfaces;
   std::vector<Ipv4InterfaceContainer> apInterfaces;
   std::vector<Ipv4InterfaceContainer> apBridgeInterfaces;
+  std::vector<NodeContainer> allNodes;
 
   config.simulationTime = simulationTime;
   config.nWifis = nWifis;
@@ -269,6 +254,7 @@ int main (int argc, char *argv[])
       WifiHelper wifi = WifiHelper::Default ();
 
       /* PHY */
+      std::cout << "Setting PHY" << std::endl;
       wifi.SetStandard (WIFI_PHY_STANDARD_80211n_5GHZ);
       if (elevenAc)
         {
@@ -360,36 +346,34 @@ int main (int argc, char *argv[])
       staDev = wifi.Install (wifiPhy, wifiMac, sta);
       staInterface = ip.Assign (staDev);
 
-      if (udpTest)
+      // getting the Ips
+      Ipv4InterfaceContainer ApDestAddress;
+      ApDestAddress = ip.Assign (apDev);
+
+      for (uint32_t j = 0; j < sta.GetN (); j++)
         {
-          // getting the Ips
-          Ipv4InterfaceContainer ApDestAddress;
-          ApDestAddress = ip.Assign (apDev);
+          uint16_t port =  ((i * destPort) + j) + 1;
+          UdpServerHelper myServer (port);
+          ApplicationContainer serverApp = myServer.Install (backboneNodes.Get (i));
+          serverApp.Start (Seconds (0.0));
+          serverApp.Stop (Seconds (simulationTime + 1));
+          servers.Add (serverApp);
 
-          for (uint32_t j = 0; j < sta.GetN (); j++)
-            {
-              uint16_t port =  ((i * destPort) + j) + 1;
-              UdpServerHelper myServer (port);
-              ApplicationContainer serverApp = myServer.Install (backboneNodes.Get (i));
-              serverApp.Start (Seconds (0.0));
-              serverApp.Stop (Seconds (simulationTime + 1));
-              servers.Add (serverApp);
+          UdpClientHelper myClient (ApDestAddress.GetAddress (0), port);
+          myClient.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
+          myClient.SetAttribute ("Interval", TimeValue (dataGenerationRate)); //packets/s
+          myClient.SetAttribute ("PacketSize", UintegerValue (payloadSize));
 
-              UdpClientHelper myClient (ApDestAddress.GetAddress (0), port);
-              myClient.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
-              myClient.SetAttribute ("Interval", TimeValue (dataGenerationRate)); //packets/s
-              myClient.SetAttribute ("PacketSize", UintegerValue (payloadSize));
+          ApplicationContainer clientApp = myClient.Install (sta.Get (j));
+          clientApp.Start (Seconds (1.0));
+          clientApp.Stop (Seconds (simulationTime + 1));
 
-              ApplicationContainer clientApp = myClient.Install (sta.Get (j));
-              clientApp.Start (Seconds (1.0));
-              clientApp.Stop (Seconds (simulationTime + 1));
-
-              std::cout << "-Setting UDP flow " << j << "/" << sta.GetN () - 1 << " from ip: " << staInterface.GetAddress (j)
-                << ", to: " << ApDestAddress.GetAddress (0) << std::endl;
-            }
+          std::cout << "-Setting UDP flow " << j << "/" << sta.GetN () - 1 << " from ip: " << staInterface.GetAddress (j)
+            << ", to: " << ApDestAddress.GetAddress (0) << std::endl;
         }
 
       // save everything in containers.
+      std::cout << "Saving all in containers: " << i << std::endl;
       staNodes.push_back (sta);
       apDevices.push_back (apDev);
       apInterfaces.push_back (apInterface);
@@ -397,48 +381,17 @@ int main (int argc, char *argv[])
       staInterfaces.push_back (staInterface);
       config.servers.push_back (servers);
 
+      allNodes.push_back (backboneNodes.Get (i));
+      allNodes.at (i).Add (sta);
+      NS_ASSERT (allNodes.at (i).GetN () == (nWifis + nStas));
+  
+      wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[i]);
+
       wifiX += deltaWifiX;
     }
 
     // Set channel width
     Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue (channelWidth));
-
-
-
-    if (!udpTest)
-      {
-        Address dest;
-        std::string protocol;
-        if (sendIp)
-          {
-            dest = InetSocketAddress (staInterfaces[1].GetAddress (1), 1025);
-            protocol = "ns3::UdpSocketFactory";
-          }
-        else
-          {
-            PacketSocketAddress tmp;
-            tmp.SetSingleDevice (staDevices[0].Get (0)->GetIfIndex ());
-            tmp.SetPhysicalAddress (staDevices[1].Get (0)->GetAddress ());
-            tmp.SetProtocol (0x807);
-            dest = tmp;
-            protocol = "ns3::PacketSocketFactory";
-          }
-
-        OnOffHelper onoff = OnOffHelper (protocol, dest);
-        onoff.SetConstantRate (DataRate ("500kb/s"));
-        ApplicationContainer apps = onoff.Install (staNodes[0].Get (0));
-        apps.Start (Seconds (0.5));
-        apps.Stop (Seconds (3.0));
-      }
-
-  // wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[0]);
-  // wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[1]);
-
-  // if (writeMobility)
-  //   {
-  //     AsciiTraceHelper ascii;
-  //     MobilityHelper::EnableAsciiAll (ascii.CreateFileStream ("wifi-wired-bridging.mob"));
-  //   }
 
 
   /* Logging and Tracing artifacts */
@@ -451,19 +404,19 @@ int main (int argc, char *argv[])
       LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
     }
 
-  for (uint32_t i = 0; i < staNodes.size (); i ++)
+  // Plugging the trace sources to all nodes in each network.
+  for (uint32_t j = 0; j <= nStas; j++)
     {
-      std::cout << "Getting trace sources for WLAN-" << i << std::cout;
-      for (uint32_t j = 0; j < staNodes.at (i).GetN (); j++)
-        {
-          std::ostringstream n;
-          Ptr<EdcaTxopN> dca = staNodes.at (i).Get (j)->GetDevice (1)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
-          // Ptr<DcfManager> dcfManager = staNodes.at (i).Get (j)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
-          // Ptr<YansWifiPhy> phy = staNodes.at (i).Get (j)->GetDevice (0)->GetObject<WifiNetDevice> ()->GetPhy ()->GetObject<YansWifiPhy> ();
-          n << i << "->" << j;
+      std::ostringstream n;
+      uint32_t device = 1; // device for stas
 
-          dca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results)); 
-        }
+      if (j == 0)
+        device = 2; // device for backbone nodes
+      n << j;
+
+      Ptr<EdcaTxopN> edca = allNodes.at(0).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
+
+      edca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results)); 
     }
 
 
