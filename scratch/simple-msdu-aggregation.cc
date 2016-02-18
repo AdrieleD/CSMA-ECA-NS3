@@ -128,9 +128,7 @@ GetJFI (sim_results *results)
           break;
         }
     }
-
   jfi = std::pow (num, 2) / denom;
-
   return jfi;
 }
 

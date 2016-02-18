@@ -88,36 +88,164 @@ struct sim_results{
   int nStas;
   int nWifis;
   std::vector< std::vector<uint64_t> > failTx;
+  std::vector< std::vector<uint64_t> > colTx;
+  std::vector< std::vector<uint64_t> > sxTx;
+  std::vector< std::vector<uint64_t> > txAttempts;
+  std::vector< std::vector<uint64_t> > udpClientSentPackets;
+  std::vector< std::vector<Time> > timeOfPrevSxTx;
+  std::vector< std::vector<Time> > sumTimeBetweenSxTx;
   uint64_t lastFailure;
+  uint64_t lastCollision;
 };
 struct sim_results results;
+
+double
+GetJFI (int nStas, std::vector<uint64_t> &udpClientSentPackets)
+{
+  double jfi = 0.0;
+  double num = 0.0;
+  double denom = 0.0;
+  for (uint32_t i = 0; i < nStas; i++)
+    {
+      if (udpClientSentPackets.at (i) > 0)
+        {
+          num += udpClientSentPackets.at (i);
+          denom += nStas * std::pow (udpClientSentPackets.at (i), 2);
+        }
+      else
+        {
+          num = 0;
+          denom = 1;
+          std::cout << "Some clients did not sent packets." << std::endl;
+          break;
+        }
+    }
+  jfi = std::pow (num, 2) / denom;
+  return jfi;
+}
+
 
 void
 finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results)
 {
   NS_ASSERT (config.servers.size () == config.nWifis);
+  NS_ASSERT (results->sxTx.at (0).size () == results->nStas + 1);
+
+  std::vector< std::vector<Time> > timeBetweenSxTx;
+  std::vector<Time> staTimesBetSxTx;
+  staTimesBetSxTx.assign (results->nStas + 1, NanoSeconds (0));
+  timeBetweenSxTx.assign (results->nWifis, staTimesBetSxTx);
+
+  std::vector<double> overallTimeBetweenSxTx;
+  overallTimeBetweenSxTx.assign (results->nWifis, 0.0);
+
+  std::vector<double> topologyThroughput;
+  std::vector<double> topologyFailedTx;
+  std::vector<double> topologyJFI;
+
+  topologyThroughput.assign (results->nWifis, 0.0);
+  topologyFailedTx.assign (results->nWifis, 0.0);
+  topologyJFI.assign (results->nWifis, 0.0);
+
+
   for (uint32_t i = 0; i < config.nWifis; i++)
     {
       double throughput = 0.0;
       double totalFails = 0.0;
+      double col = 0;
+      double attempts = 0;
+      double sx = 0;
+      
       std::cout << "\nResults for Wifi: " << i << std::endl;
+      std::cout << "\tThroughput from Udp servers:" << std::endl;
+      
+      /* Getting throughput from the Udp server */
       for (uint32_t j = 0; j < config.servers.at (i).GetN (); j++)
         {
           uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.at (i).Get (j))->GetReceived ();
           throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
-          totalFails += results->failTx.at (i).at (j);
-
-          std::cout << "\tSta-" << j << ": " << totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0) 
+          std::cout << "\t-Sta-" << j << ": " << totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0) 
             << " Mbps" << std::endl;
-          std::cout << "\tFailures: " << results->failTx.at (i).at (j) << std::endl;
+          results->udpClientSentPackets.at (i).at (j) = totalPacketsThrough;
         }
-        std::cout << "-Total Throughput: " << throughput << " Mbps" << std::endl;
+
+      /* Looking at the traced values */
+      std::cout << "\n-MAC and other details" << std::endl;
+      for (uint32_t j = 0; j < results->nStas+1; j++)
+        {
+          std::cout << "\t-Sta-" << j << std::endl;
+          totalFails += results->failTx.at (i).at (j);
+          col += results->colTx.at (i).at (j);
+          attempts += results->txAttempts.at (i).at (j);
+          sx += results->sxTx.at (i).at (j);
+
+          if (results->sxTx.at (i).at (j) > 0)
+            timeBetweenSxTx.at (i).at (j) = MicroSeconds ((results->sumTimeBetweenSxTx.at (i).at (j).GetMicroSeconds ()) /
+              results->sxTx.at (i).at (j) );
+          overallTimeBetweenSxTx.at(i) += timeBetweenSxTx.at (i).at (j).GetSeconds ();
+
+          std::cout << "\tTx Attmpts: " << results->txAttempts.at (i).at (j) << std::endl;
+          std::cout << "\tSx Frames: " << results->sxTx.at (i).at (j) << std::endl;
+          std::cout << "\tFailures: " << results->failTx.at (i).at (j) << std::endl;
+          std::cout << "\tCollisions: " << results->colTx.at (i).at (j) << std::endl;
+          std::cout << "\tAverage time between sx tx: " << timeBetweenSxTx.at (i).at (j).GetSeconds () << std::endl;
+        }
+
+        std::cout << "\n-Total Throughput: " << throughput << " Mbps" << std::endl;
+        double failFrac = 0;
+        if (col > 0 || totalFails > 0) failFrac = (totalFails + col) / (sx + col + totalFails);
+        std::cout << "-Fraction of failed transmissions: " << failFrac << std::endl;
+        double jfi = GetJFI (results->nStas, results->udpClientSentPackets.at (i));
+        std::cout << "-JFI: " << jfi << std::endl;
+        std::cout << "-Overall Time between sx tx: " << overallTimeBetweenSxTx.at (i) << ".0s" << std::endl;
+        
+        // double index = attempts - (col + totalFails + sx);
+        // std::cout << "-Count index: " << index << std::endl;
+        
+        std::cout << "-Total Tx Attmpts: " << attempts << std::endl;
+        std::cout << "-Total Sx Frames: " << sx << std::endl;
         std::cout << "-Total Failures: " << totalFails << std::endl;
+
+        /* Global stats */
+        topologyThroughput.at (i) = throughput;
+        topologyJFI.at (i) = jfi;
+        topologyFailedTx.at (i) = failFrac;
     }
+    /* Global stats */
+    bool multi = false;
+    if (results->nWifis > 1) multi = true;
+
+    if (multi) std::cout << "\n###Complete topology statistics###" << std::endl;
+
+    for (uint32_t i = 0; i < results->nWifis; i++)
+      {
+        std::cout << "-Wlan-" << i << std::endl;
+        std::cout << "\t-Throughput: " << topologyThroughput.at (i) << std::endl;
+        std::cout << "\t-Fraction of failures: " << topologyFailedTx.at (i) << std::endl;
+        std::cout << "\t-JFI: " << topologyJFI.at (i) << std::endl;
+      }
+
 }
 
 void
 TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue)
+{
+  uint64_t m_now = Simulator::Now().GetNanoSeconds ();
+  std::string token;
+  std::string delimeter = "->";
+  size_t pos = context.find (delimeter);
+  std::string wlan = context.substr (0, pos);
+  std::string node = context.substr (pos + 2, context.length ());
+
+  *stream->GetStream () << m_now << " " << wlan << " " << node << " " << FAILTX << " " << newValue << std::endl;
+
+  results->failTx.at (std::stoi (wlan)).at (std::stoi (node)) ++;
+  results->lastFailure = m_now;
+}
+
+void
+TraceCollisions(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue)
 {
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
@@ -125,13 +253,52 @@ TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std:
   std::string delimeter = "->";
   size_t pos = context.find (delimeter);
   std::string wlan = context.substr (0, pos);
-  std::string node = context.substr (pos+2, context.length ());
+  std::string node = context.substr (pos + 2, context.length ());
 
-  *stream->GetStream () << m_now << " " << wlan << " " << node << " " << FAILTX << " " << newValue << std::endl;
-  
-  results->failTx.at (std::stoi(wlan)).at (std::stoi (node)) ++;
-  results->lastFailure = m_now;
+  *stream->GetStream () << m_now << " " << wlan << " " << node << " " << COLTX << " " << newValue << std::endl;
+
+  results->colTx.at (std::stoi (wlan)).at (std::stoi (node)) ++;
+  results->lastCollision = m_now;
 }
+
+void
+TraceSuccesses(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue)
+{
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  uint64_t delta = 0;
+  std::string token;
+  std::string delimeter = "->";
+  size_t pos = context.find (delimeter);
+  std::string wlan = context.substr (0, pos);
+  std::string node = context.substr (pos + 2, context.length ());
+
+  *stream->GetStream () << m_now << " " << wlan << " " << node <<  " " << SXTX << " " << newValue << std::endl; 
+
+  results->sxTx.at (std::stoi (wlan)).at (std::stoi (node)) ++;
+
+  if (newValue == 1)
+    results->timeOfPrevSxTx.at (std::stoi (wlan)).at (std::stoi (node)) = NanoSeconds (m_now);
+  delta = (m_now - results->timeOfPrevSxTx.at (std::stoi (wlan)).at (std::stoi (node)).GetNanoSeconds ());
+  results->sumTimeBetweenSxTx.at (std::stoi (wlan)).at (std::stoi (node)) += NanoSeconds (delta);
+  results->timeOfPrevSxTx.at (std::stoi (wlan)).at (std::stoi (node)) = NanoSeconds (m_now);
+}
+
+void
+TraceTxAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
+  uint64_t oldValue, uint64_t newValue)
+{
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  std::string token;
+  std::string delimeter = "->";
+  size_t pos = context.find (delimeter);
+  std::string wlan = context.substr (0, pos);
+  std::string node = context.substr (pos + 2, context.length ());
+
+  *stream->GetStream () << m_now << " " << wlan << " " << node << " " << TX << " " << newValue << std::endl; 
+  results->txAttempts.at (std::stoi (wlan)).at (std::stoi (node)) ++;
+}
+
 
 int main (int argc, char *argv[])
 {
@@ -216,9 +383,18 @@ int main (int argc, char *argv[])
   config.channelWidth = channelWidth;
 
   std::vector<uint64_t> zeroth;
+  std::vector<Time> zerothTime;
   zeroth.assign (nStas+1, 0); // a zero vector for statistics. Ap + Stas
+  zerothTime.assign (nStas+1, NanoSeconds (0));
 
   results.failTx.assign (nWifis, zeroth);
+  results.colTx.assign (nWifis, zeroth);
+  results.sxTx.assign (nWifis, zeroth);
+  results.txAttempts.assign (nWifis, zeroth);
+  results.udpClientSentPackets.assign (nWifis, zeroth);
+  results.timeOfPrevSxTx.assign (nWifis, zerothTime);
+  results.sumTimeBetweenSxTx.assign (nWifis, zerothTime);
+
   results.nWifis = nWifis;
   results.nStas = nStas;
 
@@ -262,7 +438,6 @@ int main (int argc, char *argv[])
       WifiHelper wifi = WifiHelper::Default ();
 
       /* PHY */
-      std::cout << "Setting PHY" << std::endl;
       wifi.SetStandard (WIFI_PHY_STANDARD_80211n_5GHZ);
       if (elevenAc)
         {
@@ -289,8 +464,8 @@ int main (int argc, char *argv[])
       mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
                                      "MinX", DoubleValue (wifiX),
                                      "MinY", DoubleValue (0.0),
-                                     "DeltaX", DoubleValue (0.0),
-                                     "DeltaY", DoubleValue (0.0),
+                                     "DeltaX", DoubleValue (0.1),
+                                     "DeltaY", DoubleValue (0.1),
                                      "GridWidth", UintegerValue (1),
                                      "LayoutType", StringValue ("RowFirst"));
 
@@ -332,7 +507,7 @@ int main (int argc, char *argv[])
       mobility.Install (sta);
 
       /* Looking at each Sta's position */
-      std::cout << "\n***Wifi: " << i << std::endl;
+      std::cout << "***Wifi: " << i << std::endl;
       uint32_t n = 0;
       for (NodeContainer::Iterator j = sta.Begin (); j != sta.End (); j++)
         {
@@ -381,7 +556,7 @@ int main (int argc, char *argv[])
         }
 
       // save everything in containers.
-      std::cout << "Saving all in containers: " << i << std::endl;
+      std::cout << "Saving all in containers: " << i << std::endl << std::endl;;
       staNodes.push_back (sta);
       apDevices.push_back (apDev);
       apInterfaces.push_back (apInterface);
@@ -429,6 +604,9 @@ int main (int argc, char *argv[])
                                 ->GetObject<RegularWifiMac> ()->GetBEQueue ();
   
           edca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results)); 
+          edca->TraceConnect ("TxCollisions",n.str (), MakeBoundCallback (&TraceCollisions, tx_stream, &results));
+          edca->TraceConnect ("TxSuccesses", n.str (), MakeBoundCallback (&TraceSuccesses, tx_stream, &results));
+          edca->TraceConnect ("TxAttempts", n.str (), MakeBoundCallback (&TraceTxAttempts, tx_stream, &results));
         }
     }
 
