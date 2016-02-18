@@ -119,10 +119,8 @@ void
 TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue){
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
-  
-  std::cout << "Something " << m_now << std::endl;
 
-  // *stream->GetStream () << m_now << " " <<  n << " " << FAILTX << " " << newValue << std::endl;
+  *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
   
   // results->failTx.at (std::stoi(wlan)).at (std::stoi (n)) ++;
   // // results->lastFailure = Simulator::Now().GetMicroSeconds();
@@ -281,8 +279,8 @@ int main (int argc, char *argv[])
       mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
                                      "MinX", DoubleValue (wifiX),
                                      "MinY", DoubleValue (0.0),
-                                     "DeltaX", DoubleValue (5.0),
-                                     "DeltaY", DoubleValue (5.0),
+                                     "DeltaX", DoubleValue (0.0),
+                                     "DeltaY", DoubleValue (0.0),
                                      "GridWidth", UintegerValue (1),
                                      "LayoutType", StringValue ("RowFirst"));
 
@@ -383,7 +381,7 @@ int main (int argc, char *argv[])
 
       allNodes.push_back (backboneNodes.Get (i));
       allNodes.at (i).Add (sta);
-      NS_ASSERT (allNodes.at (i).GetN () == (nWifis + nStas));
+      NS_ASSERT (allNodes.at (i).GetN () == (1 + nStas));
   
       wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[i]);
 
@@ -405,18 +403,24 @@ int main (int argc, char *argv[])
     }
 
   // Plugging the trace sources to all nodes in each network.
-  for (uint32_t j = 0; j <= nStas; j++)
+  NS_ASSERT (nWifis == allNodes.size ());
+  for (uint32_t i = 0; i < nWifis; i++)
     {
-      std::ostringstream n;
-      uint32_t device = 1; // device for stas
-
-      if (j == 0)
-        device = 2; // device for backbone nodes
-      n << j;
-
-      Ptr<EdcaTxopN> edca = allNodes.at(0).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()->GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
-
-      edca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results)); 
+      NS_ASSERT (allNodes.at (i).GetN () == (nStas + 1));
+      for (uint32_t j = 0; j <= nStas; j++)
+        {
+          std::ostringstream n;
+          uint32_t device = 1; // device for stas
+          uint32_t context = (j * 100) + i;
+          if (j == 0)
+            device = 2; // device for backbone nodes
+          n << context;
+  
+          Ptr<EdcaTxopN> edca = allNodes.at(i).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()->GetMac ()
+                                ->GetObject<RegularWifiMac> ()->GetBEQueue ();
+  
+          edca->TraceConnect ("TxFailures",n.str (), MakeBoundCallback (&TraceFailures, tx_stream, &results)); 
+        }
     }
 
 
