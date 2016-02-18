@@ -85,12 +85,12 @@ struct sim_config
 struct sim_config config;
 
 struct sim_results{
-  uint32_t stas;
+  int nStas;
+  int nWifis;
   std::vector< std::vector<uint64_t> > failTx;
   uint64_t lastFailure;
 };
 struct sim_results results;
-
 
 void
 finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results)
@@ -107,23 +107,30 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
           throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
           totalFails += results->failTx.at (i).at (j);
 
-          std::cout << "\tSta-" << j << ": " << totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0) << std::endl;
+          std::cout << "\tSta-" << j << ": " << totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0) 
+            << " Mbps" << std::endl;
           std::cout << "\tFailures: " << results->failTx.at (i).at (j) << std::endl;
         }
-        std::cout << "-Throughput: " << throughput << std::endl;
+        std::cout << "-Total Throughput: " << throughput << " Mbps" << std::endl;
         std::cout << "-Total Failures: " << totalFails << std::endl;
     }
 }
 
 void
 TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
-  uint64_t oldValue, uint64_t newValue){
+  uint64_t oldValue, uint64_t newValue)
+{
   uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  std::string token;
+  std::string delimeter = "->";
+  size_t pos = context.find (delimeter);
+  std::string wlan = context.substr (0, pos);
+  std::string node = context.substr (pos+2, context.length ());
 
-  *stream->GetStream () << m_now << " " << context << " " << FAILTX << " " << newValue << std::endl;
+  *stream->GetStream () << m_now << " " << wlan << " " << node << " " << FAILTX << " " << newValue << std::endl;
   
-  // results->failTx.at (std::stoi(wlan)).at (std::stoi (n)) ++;
-  // // results->lastFailure = Simulator::Now().GetMicroSeconds();
+  results->failTx.at (std::stoi(wlan)).at (std::stoi (node)) ++;
+  results->lastFailure = m_now;
 }
 
 int main (int argc, char *argv[])
@@ -209,8 +216,11 @@ int main (int argc, char *argv[])
   config.channelWidth = channelWidth;
 
   std::vector<uint64_t> zeroth;
-  zeroth.assign (nStas, 0);
+  zeroth.assign (nStas+1, 0); // a zero vector for statistics. Ap + Stas
+
   results.failTx.assign (nWifis, zeroth);
+  results.nWifis = nWifis;
+  results.nStas = nStas;
 
   InternetStackHelper stack;
   CsmaHelper csma;
@@ -411,10 +421,9 @@ int main (int argc, char *argv[])
         {
           std::ostringstream n;
           uint32_t device = 1; // device for stas
-          uint32_t context = (j * 100) + i;
           if (j == 0)
             device = 2; // device for backbone nodes
-          n << context;
+          n << i << "->" << j;
   
           Ptr<EdcaTxopN> edca = allNodes.at(i).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()->GetMac ()
                                 ->GetObject<RegularWifiMac> ()->GetBEQueue ();
