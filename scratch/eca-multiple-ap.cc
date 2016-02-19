@@ -80,6 +80,7 @@ struct sim_config
   std::vector<ApplicationContainer> servers;
   uint32_t payloadSize;
   uint32_t channelWidth;
+  uint16_t channelNumber;
 
   /* Protocol specific */
   bool eca;
@@ -131,6 +132,59 @@ GetJFI (int nStas, std::vector<uint64_t> &udpClientSentPackets)
     }
   jfi = std::pow (num, 2) / denom;
   return jfi;
+}
+
+void
+channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevices, std::vector<NetDeviceContainer> apDevices)
+{
+  /* Getting YansWifiChannel */
+  NS_ASSERT (config.nWifis == staDevices.size ());
+  NS_ASSERT (apDevices.size () == config.nWifis);
+
+  for (uint32_t i = 0; i < apDevices.size (); i++)
+    {
+      Ptr<YansWifiChannel> channelAp;
+      Ptr<YansWifiPhy> phyAp;
+
+      /* apDevices have more than one device. We use an iterator
+      *  and an Assert over channelAp to confirm that we chose the 
+      *  correct channel pointer. */
+      uint32_t nDevices = apDevices.at (i).GetN ();
+      for (uint32_t n = 0; n < nDevices; n ++)
+        {
+          channelAp = apDevices.at (i).Get (n)->GetObject<WifiNetDevice> ()->GetChannel ()->GetObject<YansWifiChannel> ();
+          phyAp = apDevices.at (i).Get (n)->GetObject<WifiNetDevice> ()->GetPhy ()->GetObject<YansWifiPhy> ();
+          if (channelAp)
+            break;
+        }
+      NS_ASSERT (channelAp);
+
+      phyAp->SetChannelWidth (config.channelWidth);
+      phyAp->SetChannelNumber (config.channelNumber);
+
+
+      std::cout << "###Channel###" << std::endl;
+      std::cout << "- Ap-" << i << ": " << channelAp->GetNDevices () << " connected devices" << std::endl;
+      std::cout << "\t- Wifi channel: " << phyAp->GetChannelNumber () << std::endl;
+      std::cout << "\t- Frequency: " << phyAp->GetChannelFrequencyMhz () << " MHz" << std::endl;
+      std::cout << "\t- Width: " << phyAp->GetChannelWidth () << " MHz" << std::endl;
+      std::cout << "\t- Energy detection threshold: " << phyAp->GetEdThreshold () << " dBm" << std::endl;
+      std::cout << "\t- Tx levels. Min: " << phyAp->GetTxPowerStart () << ", Max: " << phyAp->GetTxPowerEnd () << " dBm" << std::endl;
+
+
+      NS_ASSERT (staDevices.at (i).GetN () == config.nStas);
+      uint32_t nStas = staDevices.at (i).GetN ();
+      for (uint32_t j = 0; j < nStas; j++)
+        {
+          Ptr<YansWifiChannel> channelSta = staDevices.at (i).Get (j)->GetObject<WifiNetDevice> ()->GetChannel ()
+                                            ->GetObject<YansWifiChannel> ();
+          NS_ASSERT (channelSta);
+          Ptr<YansWifiPhy> phySta = staDevices.at (i).Get (j)->GetObject<WifiNetDevice> ()->GetPhy ()->GetObject<YansWifiPhy> ();
+
+          phySta->SetChannelWidth (config.channelWidth);
+          phySta->SetChannelNumber (config.channelNumber);
+        }
+    }
 }
 
 void
@@ -305,6 +359,14 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
 }
 
 void
+process (std::string &dataFileName)
+{
+  std::string prefix("(cd ~/Dropbox/PhD/Research/NS3/ns-allinone-3.24.1/bake/source/ns-3.24/tmp3 && ./process3 ");
+  std::string command = prefix + dataFileName + ")";
+  system(command.c_str());
+}
+
+void
 TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue)
 {
@@ -383,6 +445,7 @@ int main (int argc, char *argv[])
   uint32_t nStas = 2;
   bool sendIp = false;
   uint32_t channelWidth = 20;
+  uint16_t channelNumber = 48;
   bool writeMobility = false;
   double deltaWifiX = 20.0;
   bool elevenAc = false;
@@ -424,6 +487,7 @@ int main (int argc, char *argv[])
   cmd.AddValue ("randomWalk", "Random walk of Stas", randomWalk);
   cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
   cmd.AddValue ("channelWidth", "channelWidth", channelWidth);
+  cmd.AddValue ("channelNumber", "channelWidth", channelNumber);
   cmd.AddValue ("elevenAc", "802.elevenAc MCS", elevenAc);
   cmd.AddValue ("seed", "RNG simulation seed", seed);
   cmd.AddValue ("verbose", "Logging", verbose);
@@ -473,6 +537,7 @@ int main (int argc, char *argv[])
   config.deltaWifiX = deltaWifiX;
   config.payloadSize = payloadSize;
   config.channelWidth = channelWidth;
+  config.channelNumber = channelNumber;
 
   config.eca = eca;
   config.hysteresis = hysteresis;
@@ -607,17 +672,17 @@ int main (int argc, char *argv[])
       mobility.Install (sta);
 
       /* Looking at each Sta's position */
-      std::cout << "***Wifi: " << i << std::endl;
-      uint32_t n = 0;
-      for (NodeContainer::Iterator j = sta.Begin (); j != sta.End (); j++)
-        {
-          Ptr<Node> object = *j;
-          Ptr<MobilityModel> position = object->GetObject<MobilityModel> ();
-          NS_ASSERT (position != 0);
-          Vector pos = position->GetPosition ();
-          std::cout << "Sta-" << n << ": x=" << pos.x << ", y=" << pos.y << ", z=" << pos.z << std::endl;
-          n++;
-        }
+      // std::cout << "***Wifi: " << i << std::endl;
+      // uint32_t n = 0;
+      // for (NodeContainer::Iterator j = sta.Begin (); j != sta.End (); j++)
+      //   {
+      //     Ptr<Node> object = *j;
+      //     Ptr<MobilityModel> position = object->GetObject<MobilityModel> ();
+      //     NS_ASSERT (position != 0);
+      //     Vector pos = position->GetPosition ();
+      //     std::cout << "Sta-" << n << ": x=" << pos.x << ", y=" << pos.y << ", z=" << pos.z << std::endl;
+      //     n++;
+      //   }
 
       wifiMac.SetType ("ns3::StaWifiMac",
                        "Ssid", SsidValue (ssid),
@@ -651,12 +716,11 @@ int main (int argc, char *argv[])
           clientApp.Start (Seconds (1.0));
           clientApp.Stop (Seconds (simulationTime + 1));
 
-          std::cout << "-Setting UDP flow " << j << "/" << sta.GetN () - 1 << " from ip: " << staInterface.GetAddress (j)
-            << ", to: " << ApDestAddress.GetAddress (0) << std::endl;
+          // std::cout << "-Setting UDP flow " << j << "/" << sta.GetN () - 1 << " from ip: " << staInterface.GetAddress (j)
+          //   << ", to: " << ApDestAddress.GetAddress (0) << std::endl;
         }
 
       // save everything in containers.
-      std::cout << "Saving all in containers: " << i << std::endl << std::endl;;
       staNodes.push_back (sta);
       apDevices.push_back (apDev);
       apInterfaces.push_back (apInterface);
@@ -667,14 +731,12 @@ int main (int argc, char *argv[])
       allNodes.push_back (backboneNodes.Get (i));
       allNodes.at (i).Add (sta);
       NS_ASSERT (allNodes.at (i).GetN () == (1 + nStas));
+      std::cout << "Finished default setup for Wlan-: " << i << std::endl << std::endl;;
   
       wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[i]);
 
       wifiX += deltaWifiX;
     }
-
-    // Set channel width
-    Config::Set ("/NodeList/*/DeviceList/*/$ns3::WifiNetDevice/Phy/ChannelWidth", UintegerValue (channelWidth));
 
 
   /* Logging and Tracing artifacts */
@@ -713,8 +775,12 @@ int main (int argc, char *argv[])
 
 
   Simulator::Stop (Seconds (simulationTime + 1));
+  Simulator::Schedule (Seconds (0.5), channelSetup, config, staDevices, apDevices);
   Simulator::Schedule (Seconds (0.5), finishSetup, config, staNodes);
   Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results);
+  Simulator::Schedule (Seconds (simulationTime + 0.999999), process, resultsName);
+
+  
 
 
   Simulator::Run ();
