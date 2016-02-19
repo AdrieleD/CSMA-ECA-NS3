@@ -80,8 +80,15 @@ struct sim_config
   std::vector<ApplicationContainer> servers;
   uint32_t payloadSize;
   uint32_t channelWidth;
-};
 
+  /* Protocol specific */
+  bool eca;
+  bool hysteresis;
+  bool fairShare;
+  bool bitmap;
+  bool dynStick;
+  uint32_t stickiness;
+};
 struct sim_config config;
 
 struct sim_results{
@@ -94,6 +101,8 @@ struct sim_results{
   std::vector< std::vector<uint64_t> > udpClientSentPackets;
   std::vector< std::vector<Time> > timeOfPrevSxTx;
   std::vector< std::vector<Time> > sumTimeBetweenSxTx;
+  Ptr<OutputStreamWrapper> results_stream;
+
   uint64_t lastFailure;
   uint64_t lastCollision;
 };
@@ -124,6 +133,72 @@ GetJFI (int nStas, std::vector<uint64_t> &udpClientSentPackets)
   return jfi;
 }
 
+void
+finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
+{
+  NS_ASSERT (config.nWifis == allNodes.size ());
+
+  uint32_t CwMin, CwMax;
+  std::cout << "\n###MAC and other parameters###" << std::endl;
+  for (uint32_t i = 0; i < config.nWifis; i++)
+    {
+      NS_ASSERT (allNodes.at (i).GetN () == config.nStas);
+      uint32_t device = 1; // device for stas
+      /*
+       * Navigating through stations for providing Arp entries.
+       */
+      uint32_t nStas = allNodes.at (i).GetN ();
+      for (uint32_t j = 0; j < nStas; j++)
+        {
+          for (uint32_t k = 0; k < nStas; k++)
+            {
+              if (k == j)        
+                continue;          
+              /* Getting arpCache of node j */
+              Ptr<NetDevice> netDeviceJ = allNodes.at (i).Get (j)->GetDevice (device)->GetObject<NetDevice> ();
+              Ptr<ArpCache> arpCacheJ = allNodes.at (i).Get (j)->GetObject<ArpL3Protocol> ()->FindCache (netDeviceJ);
+              if (arpCacheJ == NULL)
+                arpCacheJ = CreateObject<ArpCache> ();
+
+              /* Getting the addresses of node k */
+              Ptr<WifiNetDevice> wifiNetDeviceK = allNodes.at (i).Get (k)->GetDevice (device)->GetObject<WifiNetDevice> ();
+              Address mac = wifiNetDeviceK->GetAddress ();
+
+              Ptr<ArpCache> arpCacheK = allNodes.at (i).Get (k)->GetObject<ArpL3Protocol> ()->FindCache (wifiNetDeviceK);
+              Ptr<Ipv4Interface> ipv4InterfaceK = arpCacheK->GetInterface ();
+              Ipv4Address ip = ipv4InterfaceK->GetAddress (0).GetLocal ();
+              arpCacheJ->SetAliveTimeout (Seconds (config.simulationTime + 1));
+              ArpCache::Entry *entry = arpCacheJ->Add (ip);
+              entry->MarkWaitReply(0);
+              entry->MarkAlive(mac);
+            }
+
+          Ptr<EdcaTxopN> edca = allNodes.at (i).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()->GetMac ()
+                                ->GetObject<RegularWifiMac> ()->GetBEQueue ();
+          Ptr<DcfManager> manager = allNodes.at (i).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()
+                                    ->GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+          if (config.eca)
+            {
+              edca->ResetStats ();
+              manager->SetEnvironmentForECA (config.hysteresis, config.bitmap, config.stickiness, config.dynStick);
+            }
+          /* Universal variables. For visualization only */
+          CwMin = edca->GetMinCw ();
+          CwMax = edca->GetMaxCw ();
+
+        }
+        std::cout << "-Wlan-" << i << std::endl;
+        std::cout << "\t- CSMA/ECA: " << config.eca << std::endl;
+        std::cout << "\t- Hysteresis: " << config.hysteresis << std::endl;
+        std::cout << "\t\t- Stickiness: " << config.stickiness << std::endl;
+        std::cout << "\t- FairShare: " << config.fairShare << std::endl;
+        std::cout << "\t- Schedule Reduction: " << config.bitmap << std::endl;
+
+        std::cout << "\t- CwMin: " << CwMin << std::endl;
+        std::cout << "\t- CwMax: " << CwMax << std::endl;
+    }
+
+}
 
 void
 finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results)
@@ -213,18 +288,20 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
     }
     /* Global stats */
     bool multi = false;
+
     if (results->nWifis > 1) multi = true;
-
     if (multi) std::cout << "\n###Complete topology statistics###" << std::endl;
-
     for (uint32_t i = 0; i < results->nWifis; i++)
       {
         std::cout << "-Wlan-" << i << std::endl;
         std::cout << "\t-Throughput: " << topologyThroughput.at (i) << std::endl;
         std::cout << "\t-Fraction of failures: " << topologyFailedTx.at (i) << std::endl;
         std::cout << "\t-JFI: " << topologyJFI.at (i) << std::endl;
-      }
 
+        /* Writing the results to file */
+        *results->results_stream->GetStream () << i << " " << results->nStas << " " << topologyThroughput.at (i) << " "
+          << topologyFailedTx.at (i) << " " << topologyJFI.at (i) << std::endl;
+      }
 }
 
 void
@@ -325,9 +402,18 @@ int main (int argc, char *argv[])
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
   bool verbose = false;
 
+  /* Protocol specific */
+  bool eca = false;
+  bool hysteresis = false;
+  bool fairShare = false;
+  bool bitmap = false;
+  bool dynStick = false;
+  uint32_t stickiness = 0;
+
   std::string resultsName ("results3.log");
   std::string txLog ("tx.log");
   std::string backoffLog ("backoff.log");
+
 
   CommandLine cmd;
   cmd.AddValue ("nWifis", "Number of wifi networks", nWifis);
@@ -341,6 +427,12 @@ int main (int argc, char *argv[])
   cmd.AddValue ("elevenAc", "802.elevenAc MCS", elevenAc);
   cmd.AddValue ("seed", "RNG simulation seed", seed);
   cmd.AddValue ("verbose", "Logging", verbose);
+  cmd.AddValue ("eca", "Activation of a deterministic backoff after sxTx", eca);
+  cmd.AddValue ("hyst", "Hysteresis", hysteresis);
+  cmd.AddValue ("stickiness", "Stickiness", stickiness);
+  cmd.AddValue ("fairShare", "Fair Share", fairShare);
+  cmd.AddValue ("bitmap", "Bitmap activation", bitmap);
+  cmd.AddValue ("dynStick", "Dynamic stickiness", dynStick);
   cmd.Parse (argc, argv);
 
   if (!enableRts)
@@ -382,6 +474,13 @@ int main (int argc, char *argv[])
   config.payloadSize = payloadSize;
   config.channelWidth = channelWidth;
 
+  config.eca = eca;
+  config.hysteresis = hysteresis;
+  config.stickiness = stickiness;
+  config.fairShare = fairShare;
+  config.bitmap = bitmap;
+  config.dynStick = dynStick;
+
   std::vector<uint64_t> zeroth;
   std::vector<Time> zerothTime;
   zeroth.assign (nStas+1, 0); // a zero vector for statistics. Ap + Stas
@@ -394,6 +493,7 @@ int main (int argc, char *argv[])
   results.udpClientSentPackets.assign (nWifis, zeroth);
   results.timeOfPrevSxTx.assign (nWifis, zerothTime);
   results.sumTimeBetweenSxTx.assign (nWifis, zerothTime);
+  results.results_stream = results_stream;
 
   results.nWifis = nWifis;
   results.nStas = nStas;
@@ -613,7 +713,9 @@ int main (int argc, char *argv[])
 
 
   Simulator::Stop (Seconds (simulationTime + 1));
+  Simulator::Schedule (Seconds (0.5), finishSetup, config, staNodes);
   Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results);
+
 
   Simulator::Run ();
   Simulator::Destroy ();

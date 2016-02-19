@@ -12,35 +12,35 @@ my $seed = -1; #Keep -1 to leave unchanged
 my $channelWidth = 20;
 my $deltaWifiX = 10.0;
 
-
+my $eca = false;
+my $hyst = false;
+my $bitmap = false;
 # my $verbose = false;
-# my $eca = false;
-# my $hyst = false;
-# my $dynStick = false;
-# my $fairShare = false;
-# my $bitmap = false;
+my $dynStick = false;
+my $fairShare = false;
+my $bitmap = false;
 # my $srConservative = false;
 # my $srResetMode = false;
 my $elevenAc = true; #sets 802.11ac mcs
 my @command = './waf --cwd=tmp3/ --run "scratch/eca-multiple-ap';
 
 foreach (@ARGV){
-	# $eca = true
-	# 	if $_ eq '--eca';
-	# $hyst = true
-	# 	if $_ eq '--hyst';
-	# $bitmap = true
-	# 	if $_ eq '--bitmap';
+	$eca = true
+		if $_ eq '--eca';
+	$hyst = true
+		if $_ eq '--hyst';
+	$bitmap = true
+		if $_ eq '--bitmap';
 	# $verbose = true
 	# 	if $_ eq '--verbose';
-	# $dynStick = true
-	# 	if $_ eq '--dynStick';
+	$dynStick = true
+		if $_ eq '--dynStick';
 	# $srResetMode = true
 	# 	if $_ eq '--srResetMode';
 	# $srConservative = true
 	# 	if $_ eq '--srConservative';
-	# $fairShare = true
-	# 	if $_ eq '--fairShare';
+	$fairShare = true
+		if $_ eq '--fairShare';
 	$elevenAc = true
 		if $_ eq '--elevenAc';
 }
@@ -54,7 +54,12 @@ foreach my $j (1 .. $rep){
 					--nStas=$nStas
 					--simulationTime=$simulationTime
 					--elevenAc=$elevenAc
-					--channelWidth=$channelWidth\"");
+					--channelWidth=$channelWidth
+					--eca=$eca
+					--hyst=$hyst
+					--bitmap=$bitmap
+					--dynStick=$dynStick
+					--fairShare=$fairShare\"");
 	my @outPut = "@command @addition";
 	print("###Simulating iteration $j of $rep\n");
 	print ("@outPut\n");

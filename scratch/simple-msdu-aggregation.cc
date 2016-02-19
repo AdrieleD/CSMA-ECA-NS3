@@ -162,7 +162,7 @@ finishSetup (struct sim_config &config)
       Ptr<ArpCache> arpCache = allNodes.Get (i)->GetObject<Ipv4L3Protocol> ()->GetInterface (1)->GetArpCache ();
 
       if (arpCache == NULL)
-        arpCache = CreateObject<ArpCache>( );
+        arpCache = CreateObject<ArpCache> ();
       arpCache->SetAliveTimeout (Seconds (config.simulationTime + 1));
       ArpCache::Entry *entry = arpCache->Add (ip);
       entry->MarkWaitReply(0);
