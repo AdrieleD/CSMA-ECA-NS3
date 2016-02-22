@@ -285,7 +285,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
     }
 
   /* Writing to file */
-  *stream->GetStream() << config.nWifi << " " << std::fixed << std::setprecision(6) 
+  *stream->GetStream () << config.nWifi << " " << std::fixed << std::setprecision(6) 
   << throughput << " " << colFrac << " " << overallTimeBetweenSxTx/config.servers.GetN () 
   << " " << jfi << std::endl;
 }

@@ -75,12 +75,18 @@ struct sim_config
   uint32_t nWifis;
   uint32_t nStas;
   double deltaWifiX;
+  double wifiX;
   bool elevenAc;
   uint64_t simulationTime;
   std::vector<ApplicationContainer> servers;
   uint32_t payloadSize;
   uint32_t channelWidth;
   uint16_t channelNumber;
+
+  /* Mobility */
+  bool randomWalk;
+  uint32_t defaultPositions;
+  double maxDistanceFromAP;
 
   /* Protocol specific */
   bool eca;
@@ -163,7 +169,7 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
       phyAp->SetChannelNumber (config.channelNumber);
 
 
-      std::cout << "###Channel###" << std::endl;
+      std::cout << "\n###Channel###" << std::endl;
       std::cout << "- Ap-" << i << ": " << channelAp->GetNDevices () << " connected devices" << std::endl;
       std::cout << "\t- Wifi channel: " << phyAp->GetChannelNumber () << std::endl;
       std::cout << "\t- Frequency: " << phyAp->GetChannelFrequencyMhz () << " MHz" << std::endl;
@@ -184,6 +190,105 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
           phySta->SetChannelWidth (config.channelWidth);
           phySta->SetChannelNumber (config.channelNumber);
         }
+    }
+}
+
+void
+mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility, NodeContainer &backboneNodes, 
+  std::vector<NodeContainer> sta)
+{
+  NS_ASSERT (config.nWifis == backboneNodes.GetN ());
+  NS_ASSERT (config.nWifis == mobility.size ());
+  Ptr<ListPositionAllocator> positionAlloc;
+  Vector apPos;
+  Vector staPos;
+
+  for (uint32_t i = 0; i < config.nWifis; i++)
+    {
+      NS_ASSERT (sta.at (i).GetN () == config.nStas);
+      switch (config.defaultPositions)
+        {
+          //Squares surrounding the Ap
+          case 1:
+            NS_ASSERT (config.nStas == 4);
+            positionAlloc = CreateObject<ListPositionAllocator> ();
+            apPos = Vector (config.wifiX, 0.0, 0.0);
+            positionAlloc->Add (apPos);
+
+            for (uint32_t j = 0; j < config.nStas; j++)
+              { 
+                switch (j)
+                  {
+                    case 0:
+                      staPos = Vector (config.wifiX + config.maxDistanceFromAP, config.maxDistanceFromAP, 0.0);
+                      break;
+                    case 1:
+                      staPos = Vector (config.wifiX - config.maxDistanceFromAP, config.maxDistanceFromAP, 0.0);
+                      break;
+                    case 2:
+                      staPos = Vector (config.wifiX - config.maxDistanceFromAP, -1.0 * config.maxDistanceFromAP, 0.0);
+                      break;
+                    case 3:
+                      staPos = Vector (config.wifiX + config.maxDistanceFromAP, -1.0 * config.maxDistanceFromAP, 0.0);
+                      break;
+                  }
+                  positionAlloc->Add (staPos);
+              }
+
+            mobility.at (i).SetPositionAllocator (positionAlloc);
+            mobility.at (i).SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+            mobility.at (i).Install (backboneNodes.Get (i));
+            mobility.at (i).Install (sta.at (i));
+            break;
+
+          default:
+            mobility.at (i).SetPositionAllocator ("ns3::GridPositionAllocator",
+                                                 "MinX", DoubleValue (config.wifiX),
+                                                 "MinY", DoubleValue (0.0),
+                                                 "DeltaX", DoubleValue (0.1),
+                                                 "DeltaY", DoubleValue (0.1),
+                                                 "GridWidth", UintegerValue (1),
+                                                 "LayoutType", StringValue ("RowFirst"));
+
+            mobility.at (i).SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+            mobility.at (i).Install (backboneNodes.Get (i));
+
+            /* Sta mobility model */
+            if(config.randomWalk)
+              {
+                mobility.at (i).SetMobilityModel ("ns3::RandomWalk2dMobilityModel",
+                                                 "Mode", StringValue ("Time"),
+                                                 "Time", StringValue ("2s"),
+                                                 "Speed", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
+                                                 "Bounds", RectangleValue (Rectangle (config.wifiX, config.wifiX+5.0,0.0, (config.nStas+1)*5.0)));
+              }
+            mobility.at (i).Install (sta.at (i));
+            break;
+        }
+
+      /* Looking at each Sta's position */
+      AsciiTraceHelper asciiTraceHelper;
+      std::string filename = "position-";
+      std::stringstream ss;
+      ss << filename << i;
+      std::string positionLog = ss.str();
+      Ptr<OutputStreamWrapper> position_stream = asciiTraceHelper.CreateFileStream (positionLog);
+      
+      std::cout << "###Mobility###" << std::endl;
+      std::cout << "- Wifi-" << i << std::endl;
+      uint32_t n = 0;
+      for (NodeContainer::Iterator j = sta.at (i).Begin (); j != sta.at (i).End (); j++, n++)
+        {
+          Ptr<Node> object = *j;
+          Ptr<MobilityModel> position = object->GetObject<MobilityModel> ();
+          NS_ASSERT (position != 0);
+          Vector pos = position->GetPosition ();
+          std::cout << "\t- Sta-" << n << ": x=" << pos.x << ", y=" << pos.y << ", z=" << pos.z << std::endl;
+
+          /* Printing position to a file for plotting */
+          *position_stream->GetStream () << pos.x << " " << pos.y << " " << 1 << std::endl;
+        }
+      config.wifiX += config.deltaWifiX;
     }
 }
 
@@ -464,6 +569,8 @@ int main (int argc, char *argv[])
   uint32_t txRate = 83;
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
   bool verbose = false;
+  uint32_t defaultPositions = 0;
+  double maxDistanceFromAP = deltaWifiX / 2;
 
   /* Protocol specific */
   bool eca = false;
@@ -484,6 +591,7 @@ int main (int argc, char *argv[])
   cmd.AddValue ("SendIp", "Send Ipv4 or raw packets", sendIp);
   cmd.AddValue ("writeMobility", "Write mobility trace", writeMobility);
   cmd.AddValue ("deltaWifiX", "Separation between two nWifis", deltaWifiX);
+  cmd.AddValue ("defaultPositions", "Positions of different experiments", defaultPositions);
   cmd.AddValue ("randomWalk", "Random walk of Stas", randomWalk);
   cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
   cmd.AddValue ("channelWidth", "channelWidth", channelWidth);
@@ -531,13 +639,21 @@ int main (int argc, char *argv[])
   std::vector<Ipv4InterfaceContainer> apBridgeInterfaces;
   std::vector<NodeContainer> allNodes;
 
+  std::vector<MobilityHelper> allMobility;
+
   config.simulationTime = simulationTime;
   config.nWifis = nWifis;
   config.nStas = nStas;
-  config.deltaWifiX = deltaWifiX;
   config.payloadSize = payloadSize;
   config.channelWidth = channelWidth;
   config.channelNumber = channelNumber;
+
+  config.randomWalk = randomWalk;
+  if (defaultPositions > 0)
+    NS_ASSERT (nStas >= 4 && nStas % 4 == 0);
+  config.deltaWifiX = deltaWifiX;
+  config.defaultPositions = defaultPositions;
+  config.maxDistanceFromAP = maxDistanceFromAP;
 
   config.eca = eca;
   config.hysteresis = hysteresis;
@@ -573,8 +689,6 @@ int main (int argc, char *argv[])
   stack.Install (backboneNodes);
 
   backboneDevices = csma.Install (backboneNodes);
-
-  double wifiX = 0.0;
 
   YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
   wifiPhy.SetPcapDataLinkType (YansWifiPhyHelper::DLT_IEEE802_11_RADIO); 
@@ -625,17 +739,6 @@ int main (int argc, char *argv[])
       YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
       wifiPhy.SetChannel (wifiChannel.Create ());
 
-      /* Mobility */
-      mobility.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                     "MinX", DoubleValue (wifiX),
-                                     "MinY", DoubleValue (0.0),
-                                     "DeltaX", DoubleValue (0.1),
-                                     "DeltaY", DoubleValue (0.1),
-                                     "GridWidth", UintegerValue (1),
-                                     "LayoutType", StringValue ("RowFirst"));
-
-      mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-      mobility.Install (backboneNodes.Get (i));
 
       /* Setting the Wifi Ap */
       wifiMac.SetType ("ns3::ApWifiMac",
@@ -660,29 +763,6 @@ int main (int argc, char *argv[])
       sta.Create (nStas);
       stack.Install (sta);
       
-      /* Sta mobility model */
-      if(randomWalk)
-        {
-          mobility.SetMobilityModel ("ns3::RandomWalk2dMobilityModel",
-                                           "Mode", StringValue ("Time"),
-                                           "Time", StringValue ("2s"),
-                                           "Speed", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
-                                           "Bounds", RectangleValue (Rectangle (wifiX, wifiX+5.0,0.0, (nStas+1)*5.0)));
-        }
-      mobility.Install (sta);
-
-      /* Looking at each Sta's position */
-      // std::cout << "***Wifi: " << i << std::endl;
-      // uint32_t n = 0;
-      // for (NodeContainer::Iterator j = sta.Begin (); j != sta.End (); j++)
-      //   {
-      //     Ptr<Node> object = *j;
-      //     Ptr<MobilityModel> position = object->GetObject<MobilityModel> ();
-      //     NS_ASSERT (position != 0);
-      //     Vector pos = position->GetPosition ();
-      //     std::cout << "Sta-" << n << ": x=" << pos.x << ", y=" << pos.y << ", z=" << pos.z << std::endl;
-      //     n++;
-      //   }
 
       wifiMac.SetType ("ns3::StaWifiMac",
                        "Ssid", SsidValue (ssid),
@@ -727,16 +807,17 @@ int main (int argc, char *argv[])
       staDevices.push_back (staDev);
       staInterfaces.push_back (staInterface);
       config.servers.push_back (servers);
+      allMobility.push_back (mobility);
 
       allNodes.push_back (backboneNodes.Get (i));
       allNodes.at (i).Add (sta);
       NS_ASSERT (allNodes.at (i).GetN () == (1 + nStas));
-      std::cout << "Finished default setup for Wlan-: " << i << std::endl << std::endl;;
   
       wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[i]);
-
-      wifiX += deltaWifiX;
     }
+
+    /* Mobility */
+    mobilitySetup (config, allMobility, backboneNodes, staNodes);
 
 
   /* Logging and Tracing artifacts */

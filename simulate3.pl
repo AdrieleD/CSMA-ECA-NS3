@@ -1,16 +1,20 @@
 #!/usr/local/bin/perl
 use List::Util qw(first max maxstr min minstr reduce shuffle sum);
-my $nStas = $ARGV[0];
-my $nWifis = $ARGV[1];
+use Switch;
+
+my $nStas = $ARGV[1];
+my $nWifis = $ARGV[0];
 my $rep = 1;
-my $simulationTime = 5;
+my $simulationTime = 2;
 my $seed = -1; #Keep -1 to leave unchanged
 # my $stickiness = 1;
 # my $EIFSnoDIFS = 1; #see collisions.numbers
 # my $AckTimeout = 1; 
 # my $frameMinFer = 0.1;
-my $channelWidth = 20;
-my $deltaWifiX = 10.0;
+my $channelWidth = 40;
+my $deltaWifiX = 20.0; #separation between Aps
+my $defaultPositions = 1; #different experiments
+
 
 my $eca = false;
 my $hyst = false;
@@ -45,6 +49,18 @@ foreach (@ARGV){
 		if $_ eq '--elevenAc';
 }
 
+# Defining stations and other parameters according 
+# to the mobility model to test
+if ($defaultPositions > 0){
+	# type 1 only has 4 stas forming a square
+	# around an Ap
+	switch ($defaultPositions){
+		case 1 {
+			$nStas = 4;
+		}
+	}
+}
+
 foreach my $j (1 .. $rep){
 	$seed = $j
 		if($rep > 1);
@@ -59,7 +75,8 @@ foreach my $j (1 .. $rep){
 					--hyst=$hyst
 					--bitmap=$bitmap
 					--dynStick=$dynStick
-					--fairShare=$fairShare\"");
+					--fairShare=$fairShare
+					--defaultPositions=$defaultPositions\"");
 	my @outPut = "@command @addition";
 	print("###Simulating iteration $j of $rep\n");
 	print ("@outPut\n");
