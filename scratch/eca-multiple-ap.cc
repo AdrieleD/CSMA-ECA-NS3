@@ -360,7 +360,7 @@ finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
 }
 
 void
-finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results)
+finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results, Ptr<OutputStreamWrapper> staStream)
 {
   NS_ASSERT (config.servers.size () == config.nWifis);
   NS_ASSERT (results->sxTx.at (0).size () == results->nStas + 1);
@@ -397,10 +397,15 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
       for (uint32_t j = 0; j < config.servers.at (i).GetN (); j++)
         {
           uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.at (i).Get (j))->GetReceived ();
-          throughput += totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
+          double addThroughput = totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
+          throughput += addThroughput;
           std::cout << "\t-Sta-" << j << ": " << totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0) 
             << " Mbps" << std::endl;
           results->udpClientSentPackets.at (i).at (j) = totalPacketsThrough;
+
+          /* Gathering per Sta information */
+          *staStream->GetStream () << i << " " << j << " " << addThroughput << " " 
+            << results->failTx.at (i).at (j+1) << " " << results->colTx.at (i).at (j+1) << std::endl;
         }
 
       /* Looking at the traced values */
@@ -581,6 +586,7 @@ int main (int argc, char *argv[])
   uint32_t stickiness = 0;
 
   std::string resultsName ("results3.log");
+  std::string staResultsName ("staResults3.log");
   std::string txLog ("tx.log");
   std::string backoffLog ("backoff.log");
 
@@ -627,6 +633,7 @@ int main (int argc, char *argv[])
   Ptr<OutputStreamWrapper> results_stream = asciiTraceHelper.CreateFileStream (resultsName, __gnu_cxx::ios_base::app);
   Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream (txLog);
   Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
+  Ptr<OutputStreamWrapper> sta_stream = asciiTraceHelper.CreateFileStream (staResultsName);
 
   NodeContainer backboneNodes;
   NetDeviceContainer backboneDevices;
@@ -858,7 +865,7 @@ int main (int argc, char *argv[])
   Simulator::Stop (Seconds (simulationTime + 1));
   Simulator::Schedule (Seconds (0.5), channelSetup, config, staDevices, apDevices);
   Simulator::Schedule (Seconds (0.5), finishSetup, config, staNodes);
-  Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results);
+  Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results, sta_stream);
   Simulator::Schedule (Seconds (simulationTime + 0.999999), process, resultsName);
 
   

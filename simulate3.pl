@@ -13,7 +13,7 @@ my $seed = -1; #Keep -1 to leave unchanged
 # my $frameMinFer = 0.1;
 my $channelWidth = 40;
 my $deltaWifiX = 20.0; #separation between Aps
-my $defaultPositions = 1; #different experiments
+my $defaultPositions = 0; #different experiments
 
 
 my $eca = false;
