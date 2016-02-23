@@ -551,6 +551,13 @@ TraceTxAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, st
   results->txAttempts.at (std::stoi (wlan)).at (std::stoi (node)) ++;
 }
 
+void
+TraceAssignedBackoff(Ptr<OutputStreamWrapper> stream, std::string context, uint32_t oldValue, uint32_t newValue){
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+  if(newValue != 0xFFFFFFFF)
+    *stream->GetStream () << m_now << " " << context << " " << BO << " " << newValue << std::endl; 
+}
+
 
 int main (int argc, char *argv[])
 {
@@ -872,6 +879,7 @@ int main (int argc, char *argv[])
           edca->TraceConnect ("TxCollisions",n.str (), MakeBoundCallback (&TraceCollisions, tx_stream, &results));
           edca->TraceConnect ("TxSuccesses", n.str (), MakeBoundCallback (&TraceSuccesses, tx_stream, &results));
           edca->TraceConnect ("TxAttempts", n.str (), MakeBoundCallback (&TraceTxAttempts, tx_stream, &results));
+          edca->TraceConnect ("BackoffCounter", n.str (), MakeBoundCallback (&TraceAssignedBackoff, backoff_stream));  
         }
     }
 
