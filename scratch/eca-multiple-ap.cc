@@ -399,7 +399,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
       std::string filename = "position-";
       std::stringstream ss;
       ss << filename << i;
-      std::string positionLog = ss.str();
+      std::string positionLog = ss.str ();
       Ptr<OutputStreamWrapper> position_stream = asciiTraceHelper.CreateFileStream (positionLog);
       
       std::cout << "\nResults for Wifi: " << i << std::endl;
@@ -421,10 +421,14 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
             << results->failTx.at (i).at (j+1) << " " << results->colTx.at (i).at (j+1) << std::endl;
 
           /* Printing the throughput and location information */
+          std::stringstream nodeSs;
+          std::string nodeId;
+          nodeSs << i << "." <<  j;
+          nodeId = nodeSs.str ();
           Ptr<MobilityModel> position = sta.at (i).Get (j)->GetObject<MobilityModel> ();
           NS_ASSERT (position != 0);
           Vector pos = position->GetPosition ();
-          *position_stream->GetStream () << pos.x << " " << pos.y << " " << addThroughput << std::endl;
+          *position_stream->GetStream () << pos.x << " " << pos.y << " " << addThroughput << " " << nodeId << std::endl;
         }
 
       /* Looking at the traced values */
