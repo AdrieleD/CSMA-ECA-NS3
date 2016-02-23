@@ -269,13 +269,13 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
             break;
         }
 
-      /* Looking at each Sta's position */
-      AsciiTraceHelper asciiTraceHelper;
-      std::string filename = "position-";
-      std::stringstream ss;
-      ss << filename << i;
-      std::string positionLog = ss.str();
-      Ptr<OutputStreamWrapper> position_stream = asciiTraceHelper.CreateFileStream (positionLog);
+      // /* Looking at each Sta's position */
+      // AsciiTraceHelper asciiTraceHelper;
+      // std::string filename = "position-";
+      // std::stringstream ss;
+      // ss << filename << i;
+      // std::string positionLog = ss.str();
+      // Ptr<OutputStreamWrapper> position_stream = asciiTraceHelper.CreateFileStream (positionLog);
       
       std::cout << "###Mobility###" << std::endl;
       std::cout << "- Wifi-" << i << std::endl;
@@ -289,7 +289,7 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
           std::cout << "\t- Sta-" << n << ": x=" << pos.x << ", y=" << pos.y << ", z=" << pos.z << std::endl;
 
           /* Printing position to a file for plotting */
-          *position_stream->GetStream () << pos.x << " " << pos.y << " " << 1 << std::endl;
+          // *position_stream->GetStream () << pos.x << " " << pos.y << " " << 1 << std::endl;
         }
       config.wifiX += config.deltaWifiX;
     }
@@ -363,7 +363,8 @@ finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
 }
 
 void
-finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results, Ptr<OutputStreamWrapper> staStream)
+finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  Ptr<OutputStreamWrapper> staStream, std::vector<NodeContainer> sta)
 {
   NS_ASSERT (config.servers.size () == config.nWifis);
   NS_ASSERT (results->sxTx.at (0).size () == results->nStas + 1);
@@ -392,11 +393,20 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
       double col = 0;
       double attempts = 0;
       double sx = 0;
+
+      // /* Looking at each Sta's position */
+      AsciiTraceHelper asciiTraceHelper;
+      std::string filename = "position-";
+      std::stringstream ss;
+      ss << filename << i;
+      std::string positionLog = ss.str();
+      Ptr<OutputStreamWrapper> position_stream = asciiTraceHelper.CreateFileStream (positionLog);
       
       std::cout << "\nResults for Wifi: " << i << std::endl;
       std::cout << "\tThroughput from Udp servers:" << std::endl;
       
       /* Getting throughput from the Udp server */
+      NS_ASSERT (config.servers.at (i).GetN () == sta.at (i).GetN ());
       for (uint32_t j = 0; j < config.servers.at (i).GetN (); j++)
         {
           uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.at (i).Get (j))->GetReceived ();
@@ -409,6 +419,12 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
           /* Gathering per Sta information */
           *staStream->GetStream () << i << " " << j << " " << addThroughput << " " 
             << results->failTx.at (i).at (j+1) << " " << results->colTx.at (i).at (j+1) << std::endl;
+
+          /* Printing the throughput and location information */
+          Ptr<MobilityModel> position = sta.at (i).Get (j)->GetObject<MobilityModel> ();
+          NS_ASSERT (position != 0);
+          Vector pos = position->GetPosition ();
+          *position_stream->GetStream () << pos.x << " " << pos.y << " " << addThroughput << std::endl;
         }
 
       /* Looking at the traced values */
@@ -888,7 +904,7 @@ int main (int argc, char *argv[])
   Simulator::Stop (Seconds (simulationTime + 1));
   Simulator::Schedule (Seconds (0.5), channelSetup, config, staDevices, apDevices);
   Simulator::Schedule (Seconds (0.5), finishSetup, config, staNodes);
-  Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results, sta_stream);
+  Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results, sta_stream, staNodes);
   Simulator::Schedule (Seconds (simulationTime + 0.999999), process, resultsName);
 
   
