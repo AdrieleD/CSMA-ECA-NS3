@@ -12,8 +12,8 @@ my $seed = -1; #Keep -1 to leave unchanged
 # my $AckTimeout = 1; 
 # my $frameMinFer = 0.1;
 my $channelWidth = 40;
-my $deltaWifiX = 20.0; #separation between Aps
-my $defaultPositions = 0; #different experiments
+my $deltaWifiX = 30.0; #separation between Aps
+my $defaultPositions = 1; #different experiments
 
 
 my $eca = false;
@@ -23,6 +23,7 @@ my $bitmap = false;
 my $dynStick = false;
 my $fairShare = false;
 my $bitmap = false;
+my $limitRange = false;
 # my $srConservative = false;
 # my $srResetMode = false;
 my $elevenAc = true; #sets 802.11ac mcs
@@ -47,6 +48,9 @@ foreach (@ARGV){
 		if $_ eq '--fairShare';
 	$elevenAc = true
 		if $_ eq '--elevenAc';
+
+	$limitRange = true
+		if $_ eq '--limitRange';
 }
 
 # Defining stations and other parameters according 
@@ -76,7 +80,8 @@ foreach my $j (1 .. $rep){
 					--bitmap=$bitmap
 					--dynStick=$dynStick
 					--fairShare=$fairShare
-					--defaultPositions=$defaultPositions\"");
+					--defaultPositions=$defaultPositions
+					--limitRange=$limitRange\"");
 	my @outPut = "@command @addition";
 	print("###Simulating iteration $j of $rep\n");
 	print ("@outPut\n");

@@ -24,7 +24,7 @@
 //      +-----+      +-----+            +-----+      +-----+
 //      | STA |      | STA |            | STA |      | STA | 
 //      +-----+      +-----+            +-----+      +-----+
-//    192.168.0.2  192.168.0.3        192.168.0.5  192.168.0.6
+//    
 //      --------     --------           --------     --------
 //      WIFI STA     WIFI STA           WIFI STA     WIFI STA
 //      --------     --------           --------     --------
@@ -37,7 +37,7 @@
 //             ##############           ##############
 //                 BRIDGE                   BRIDGE
 //             ##############           ############## 
-//               192.168.0.1              192.168.0.4
+//              
 //               +---------+              +---------+
 //               | AP Node |              | AP Node |
 //               +---------+              +---------+
@@ -82,6 +82,7 @@ struct sim_config
   uint32_t payloadSize;
   uint32_t channelWidth;
   uint16_t channelNumber;
+  double maxWifiRange;
 
   /* Mobility */
   bool randomWalk;
@@ -164,6 +165,7 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
             break;
         }
       NS_ASSERT (channelAp);
+      // Ptr<PropagationLossModel> lossModel = channelAp->GetPropagationLossModel ();
 
       phyAp->SetChannelWidth (config.channelWidth);
       phyAp->SetChannelNumber (config.channelNumber);
@@ -176,6 +178,7 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
       std::cout << "\t- Width: " << phyAp->GetChannelWidth () << " MHz" << std::endl;
       std::cout << "\t- Energy detection threshold: " << phyAp->GetEdThreshold () << " dBm" << std::endl;
       std::cout << "\t- Tx levels. Min: " << phyAp->GetTxPowerStart () << ", Max: " << phyAp->GetTxPowerEnd () << " dBm" << std::endl;
+      std::cout << "\t- Max transmission range: " << config.maxWifiRange << " m" << std::endl;
 
 
       NS_ASSERT (staDevices.at (i).GetN () == config.nStas);
@@ -557,7 +560,7 @@ int main (int argc, char *argv[])
   uint32_t channelWidth = 20;
   uint16_t channelNumber = 48;
   bool writeMobility = false;
-  double deltaWifiX = 20.0;
+  double deltaWifiX = 30.0;
   bool elevenAc = false;
   bool shortGuardInterval = true;
   uint32_t dataRateAc  = 8; // Vht mcs
@@ -575,7 +578,9 @@ int main (int argc, char *argv[])
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
   bool verbose = false;
   uint32_t defaultPositions = 0;
-  double maxDistanceFromAP = deltaWifiX / 2;
+  double maxDistanceFromAP = 0;
+  double maxWifiRange = 0.0;
+  bool limitRange = false;
 
   /* Protocol specific */
   bool eca = false;
@@ -597,6 +602,7 @@ int main (int argc, char *argv[])
   cmd.AddValue ("SendIp", "Send Ipv4 or raw packets", sendIp);
   cmd.AddValue ("writeMobility", "Write mobility trace", writeMobility);
   cmd.AddValue ("deltaWifiX", "Separation between two nWifis", deltaWifiX);
+  cmd.AddValue ("limitRange", "Limit the transmission range", limitRange);
   cmd.AddValue ("defaultPositions", "Positions of different experiments", defaultPositions);
   cmd.AddValue ("randomWalk", "Random walk of Stas", randomWalk);
   cmd.AddValue ("simulationTime", "Simulation time in seconds", simulationTime);
@@ -647,6 +653,14 @@ int main (int argc, char *argv[])
   std::vector<NodeContainer> allNodes;
 
   std::vector<MobilityHelper> allMobility;
+  config.wifiX = 0.0;
+  maxDistanceFromAP = deltaWifiX / 3;
+  maxWifiRange = std::sqrt (std::pow (maxDistanceFromAP, 2) + std::pow (maxDistanceFromAP, 2));
+  config.maxWifiRange = maxWifiRange;
+  // Set the maximum wireless range to maxWifiRange meters in order to reproduce a hidden nodes scenario
+  // i.e. the distance between hidden stations is larger than maxWifiRange meters
+  if (limitRange)
+    Config::SetDefault ("ns3::RangePropagationLossModel::MaxRange", DoubleValue (maxWifiRange));
 
   config.simulationTime = simulationTime;
   config.nWifis = nWifis;
@@ -744,6 +758,7 @@ int main (int argc, char *argv[])
         HtWifiMacHelper wifiMac = HtWifiMacHelper::Default ();
 
       YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
+      wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel"); //wireless range limited to maxDistanceFromAP meters!
       wifiPhy.SetChannel (wifiChannel.Create ());
 
 
