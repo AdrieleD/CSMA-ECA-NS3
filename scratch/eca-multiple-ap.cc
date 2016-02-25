@@ -877,6 +877,7 @@ int main (int argc, char *argv[])
       LogComponentEnable ("MsduStandardAggregator", LOG_LEVEL_DEBUG);
       LogComponentEnable ("MsduAggregator", LOG_LEVEL_DEBUG);
       LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("InterferenceHelper", LOG_LEVEL_DEBUG);
     }
 
   // Plugging the trace sources to all nodes in each network.

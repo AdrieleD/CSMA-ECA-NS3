@@ -715,8 +715,17 @@ maybeCcaBusy:
   //tracked by the InterferenceHelper class is higher than the CcaBusyThreshold
 
   Time delayUntilCcaEnd = m_interference.GetEnergyDuration (m_ccaMode1ThresholdW);
+
   if (!delayUntilCcaEnd.IsZero ())
     {
+      NS_LOG_DEBUG ("Maybe Cca Busy, deferring: " << delayUntilCcaEnd.GetNanoSeconds ());
+      m_state->SwitchMaybeToCcaBusy (delayUntilCcaEnd);
+    }
+  else if (rxPowerW < m_edThresholdW)
+    {
+      delayUntilCcaEnd = rxDuration;
+      NS_LOG_DEBUG ("A transmission detected in the interference range, deferring for: " 
+        << delayUntilCcaEnd.GetNanoSeconds ());
       m_state->SwitchMaybeToCcaBusy (delayUntilCcaEnd);
     }
 }
@@ -1159,6 +1168,7 @@ YansWifiPhy::EndReceive (Ptr<Packet> packet, enum WifiPreamble preamble, struct 
       if (m_random->GetValue () > snrPer.per)
         {
           NotifyRxEnd (packet);
+          NS_LOG_DEBUG ("Correctly decoded PLCP of frame");
           uint32_t dataRate500KbpsUnits;
           if ((event->GetPayloadMode ().GetModulationClass () == WIFI_MOD_CLASS_HT) || (event->GetPayloadMode ().GetModulationClass () == WIFI_MOD_CLASS_VHT))
             {
@@ -1177,6 +1187,7 @@ YansWifiPhy::EndReceive (Ptr<Packet> packet, enum WifiPreamble preamble, struct 
       else
         {
           /* failure. */
+          NS_LOG_DEBUG ("Error at receiving the frame");
           NotifyRxDrop (packet);
           m_state->SwitchFromRxEndError (packet, snrPer.snr);
           UpdateFrameErrorCount ();
