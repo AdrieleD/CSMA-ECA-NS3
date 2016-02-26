@@ -5,15 +5,20 @@ use Switch;
 my $nStas = $ARGV[1];
 my $nWifis = $ARGV[0];
 my $rep = 1;
-my $simulationTime = 2;
+my $simulationTime = 5;
 my $seed = -1; #Keep -1 to leave unchanged
 my $stickiness = 0;
 # my $EIFSnoDIFS = 1; #see collisions.numbers
 # my $AckTimeout = 1; 
 # my $frameMinFer = 0.1;
 my $channelWidth = 40;
-my $deltaWifiX = 30.0; #separation between Aps
-my $defaultPositions = 1; #different experiments
+my $xDistanceFromAp = 10.0; #x component of maxWifiRange calculation
+
+# 0 = default, line of nodes radiating from Ap, separated by 0.1 m
+# 1 = 2 Aps, separated by 3*maxWifiRanges
+# 2 = 3 Aps, separated like #1.
+# 3 = 100 Aps, separated like #1.
+my $defaultPositions = 2; #different experiments
 
 
 my $eca = false;
@@ -53,14 +58,19 @@ foreach (@ARGV){
 		if $_ eq '--limitRange';
 }
 
-# Defining stations and other parameters according 
-# to the mobility model to test
+#Modifying parameters according to test scenario
 if ($defaultPositions > 0){
-	# type 1 only has 4 stas forming a square
-	# around an Ap
 	switch ($defaultPositions){
 		case 1 {
 			$nStas = 4;
+		}
+		case 2 {
+			$nStas = 4;
+			$nWifis = 3;
+		}
+		case 3 {
+			$nStas = 4;
+			$nWifis = 100;
 		}
 	}
 }
@@ -69,7 +79,7 @@ foreach my $j (1 .. $rep){
 	$seed = $j
 		if($rep > 1);
 	my @addition = ("--nWifis=$nWifis
-					--deltaWifiX=$deltaWifiX
+					--xDistanceFromAp=$xDistanceFromAp
 					--seed=$seed 
 					--nStas=$nStas
 					--simulationTime=$simulationTime

@@ -194,7 +194,6 @@ InterferenceHelper::GetEnergyDuration (double energyW)
   double noiseInterferenceW = 0.0;
   Time end = now;
   noiseInterferenceW = m_firstPower;
-  NS_LOG_DEBUG ("m_firstPower: " << m_firstPower);
   for (NiChanges::const_iterator i = m_niChanges.begin (); i != m_niChanges.end (); i++)
     {
       noiseInterferenceW += i->GetDelta ();
