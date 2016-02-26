@@ -723,10 +723,10 @@ maybeCcaBusy:
     }
   else if (rxPowerW < m_edThresholdW)
     {
-      delayUntilCcaEnd = rxDuration;
+      // delayUntilCcaEnd = rxDuration;
       NS_LOG_DEBUG ("A transmission detected in the interference range, deferring for: " 
         << delayUntilCcaEnd.GetNanoSeconds ());
-      m_state->SwitchMaybeToCcaBusy (delayUntilCcaEnd);
+      // m_state->SwitchMaybeToCcaBusy (delayUntilCcaEnd);
     }
 }
 

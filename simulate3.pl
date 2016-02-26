@@ -5,20 +5,21 @@ use Switch;
 my $nStas = $ARGV[1];
 my $nWifis = $ARGV[0];
 my $rep = 1;
-my $simulationTime = 5;
+my $simulationTime = 2;
 my $seed = -1; #Keep -1 to leave unchanged
 my $stickiness = 0;
 # my $EIFSnoDIFS = 1; #see collisions.numbers
 # my $AckTimeout = 1; 
 # my $frameMinFer = 0.1;
-my $channelWidth = 40;
+my $channelWidth = 20;
 my $xDistanceFromAp = 10.0; #x component of maxWifiRange calculation
 
 # 0 = default, line of nodes radiating from Ap, separated by 0.1 m
-# 1 = 2 Aps, separated by 3*maxWifiRanges
+# 1 = 2 Aps, separated by beta*maxWifiRanges
 # 2 = 3 Aps, separated like #1.
 # 3 = 100 Aps, separated like #1.
-my $defaultPositions = 2; #different experiments
+# 4 = same as 2, but nodes are really close to their respective Aps
+my $defaultPositions = 4; #different experiments
 
 
 my $eca = false;
@@ -31,7 +32,7 @@ my $bitmap = false;
 my $limitRange = false;
 # my $srConservative = false;
 # my $srResetMode = false;
-my $elevenAc = true; #sets 802.11ac mcs
+my $elevenAc = false; #sets 802.11ac mcs
 my @command = './waf --cwd=tmp3/ --run "scratch/eca-multiple-ap';
 
 foreach (@ARGV){
@@ -71,6 +72,10 @@ if ($defaultPositions > 0){
 		case 3 {
 			$nStas = 4;
 			$nWifis = 100;
+		}
+		case 4 {
+			$nStas = 4;
+			$nWifis = 3;
 		}
 	}
 }

@@ -53,6 +53,7 @@
 #include "ns3/internet-module.h"
 #include "ns3/bridge-helper.h"
 #include "ns3/assert.h"
+#include "ns3/propagation-loss-model.h"
 #include <vector>
 #include <stdint.h>
 #include <sstream>
@@ -89,6 +90,8 @@ struct sim_config
   bool randomWalk;
   uint32_t defaultPositions;
   double xDistanceFromAp;
+  double yDistanceFromAp;
+  uint16_t beta;
 
   /* Protocol specific */
   bool eca;
@@ -97,6 +100,7 @@ struct sim_config
   bool bitmap;
   bool dynStick;
   uint32_t stickiness;
+  uint32_t maxMsdus;
 };
 struct sim_config config;
 
@@ -166,11 +170,9 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
             break;
         }
       NS_ASSERT (channelAp);
-      // Ptr<PropagationLossModel> lossModel = channelAp->GetPropagationLossModel ();
 
       phyAp->SetChannelWidth (config.channelWidth);
       phyAp->SetChannelNumber (config.channelNumber);
-
 
       std::cout << "\n###Channel###" << std::endl;
       std::cout << "- Ap-" << i << ": " << channelAp->GetNDevices () << " connected devices" << std::endl;
@@ -185,6 +187,7 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
 
       NS_ASSERT (staDevices.at (i).GetN () == config.nStas);
       uint32_t nStas = staDevices.at (i).GetN ();
+      double staEdThreshold = 0.0;
       for (uint32_t j = 0; j < nStas; j++)
         {
           Ptr<YansWifiChannel> channelSta = staDevices.at (i).Get (j)->GetObject<WifiNetDevice> ()->GetChannel ()
@@ -194,7 +197,10 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
 
           phySta->SetChannelWidth (config.channelWidth);
           phySta->SetChannelNumber (config.channelNumber);
+
+          staEdThreshold = phySta->GetEdThreshold ();
         }
+      std::cout << "\t- Stations's energy detection threshold: " << staEdThreshold << " dBm" << std::endl;
     }
 }
 
@@ -228,6 +234,12 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
             NS_ASSERT (config.nStas == 4 && config.nWifis == 100);
             goto setupPositions;
             break;
+          //Same as 2, but nodes are very close to their Ap
+          case 4:
+            NS_ASSERT (config.nStas == 4 && config.nWifis == 3);
+            config.xDistanceFromAp = config.yDistanceFromAp / 100;
+            goto setupPositions;
+          break;
           default:
             mobility.at (i).SetPositionAllocator ("ns3::GridPositionAllocator",
                                                  "MinX", DoubleValue (config.wifiX),
@@ -264,16 +276,16 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
             switch (j)
               {
                 case 0:
-                  staPos = Vector (config.wifiX + config.xDistanceFromAp, config.xDistanceFromAp, 0.0);
+                  staPos = Vector (config.wifiX + config.xDistanceFromAp, config.yDistanceFromAp, 0.0);
                   break;
                 case 1:
-                  staPos = Vector (config.wifiX - config.xDistanceFromAp, config.xDistanceFromAp, 0.0);
+                  staPos = Vector (config.wifiX - config.xDistanceFromAp, config.yDistanceFromAp, 0.0);
                   break;
                 case 2:
-                  staPos = Vector (config.wifiX - config.xDistanceFromAp, -1.0 * config.xDistanceFromAp, 0.0);
+                  staPos = Vector (config.wifiX - config.xDistanceFromAp, -1.0 * config.yDistanceFromAp, 0.0);
                   break;
                 case 3:
-                  staPos = Vector (config.wifiX + config.xDistanceFromAp, -1.0 * config.xDistanceFromAp, 0.0);
+                  staPos = Vector (config.wifiX + config.xDistanceFromAp, -1.0 * config.yDistanceFromAp, 0.0);
                   break;
               }
               positionAlloc->Add (staPos);
@@ -358,6 +370,9 @@ finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
             {
               edca->ResetStats ();
               manager->SetEnvironmentForECA (config.hysteresis, config.bitmap, config.stickiness, config.dynStick);
+
+              if (config.fairShare)
+                edca->SetFairShare ();
             }
           /* Universal variables. For visualization only */
           CwMin = edca->GetMinCw ();
@@ -487,6 +502,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
         topologyThroughput.at (i) = throughput;
         topologyJFI.at (i) = jfi;
         topologyFailedTx.at (i) = failFrac;
+
     }
     /* Global stats */
     bool multi = false;
@@ -495,14 +511,15 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
     if (multi) std::cout << "\n###Complete topology statistics###" << std::endl;
     for (uint32_t i = 0; i < results->nWifis; i++)
       {
-        std::cout << "-Wlan-" << i << std::endl;
-        std::cout << "\t-Throughput: " << topologyThroughput.at (i) << std::endl;
-        std::cout << "\t-Fraction of failures: " << topologyFailedTx.at (i) << std::endl;
-        std::cout << "\t-JFI: " << topologyJFI.at (i) << std::endl;
+        std::cout << "- Wlan-" << i << std::endl;
+        std::cout << "\t- Throughput: " << topologyThroughput.at (i) << std::endl;
+        std::cout << "\t- Fraction of failures: " << topologyFailedTx.at (i) << std::endl;
+        std::cout << "\t- JFI: " << topologyJFI.at (i) << std::endl;
+        std::cout << "\t- Avg. Time between Sx Tx: " << overallTimeBetweenSxTx.at (i) << std::endl;
 
         /* Writing the results to file */
         *results->results_stream->GetStream () << i << " " << results->nStas << " " << topologyThroughput.at (i) << " "
-          << topologyFailedTx.at (i) << " " << topologyJFI.at (i) << std::endl;
+          << topologyFailedTx.at (i) << " " << topologyJFI.at (i) << " " << overallTimeBetweenSxTx.at (i) << std::endl;
       }
 }
 
@@ -610,6 +627,7 @@ int main (int argc, char *argv[])
   std::string dataRate ("HtMcs7");
   std::string controlRate ("HtMcs7");
   uint32_t nMsdus = 1;
+  uint32_t maxMsdus = 1024/16; /* Cwmax / Cwmin */
   bool randomWalk = false;
   uint32_t payloadSize = 1470; //bytes
   bool enableRts = false;
@@ -625,6 +643,7 @@ int main (int argc, char *argv[])
   double xDistanceFromAp = 10; // x component of maxWifiRange calculation
   double maxWifiRange = 0.0;
   bool limitRange = false;
+  // double edThesholdM = 100.0; // in meters
 
   /* Protocol specific */
   bool eca = false;
@@ -699,21 +718,25 @@ int main (int argc, char *argv[])
   std::vector<MobilityHelper> allMobility;
   config.wifiX = 0.0; // initial x position of first Ap
   double yDistanceFromAp = xDistanceFromAp;
-  maxWifiRange = std::sqrt (std::pow (xDistanceFromAp, 2) + std::pow (yDistanceFromAp, 2));
+  config.yDistanceFromAp = yDistanceFromAp;
+  const uint16_t alpha = 110;
+  maxWifiRange = std::sqrt (alpha * std::pow (xDistanceFromAp, 2) + std::pow (yDistanceFromAp, 2));
   config.maxWifiRange = maxWifiRange;
-  // separation coefficient
-  uint16_t beta = 30;
-  deltaWifiX = beta * maxWifiRange;
+  
+  const double beta = 9;
+  deltaWifiX = beta * xDistanceFromAp;
+  config.beta = beta;
 
-  config.limitRange = limitRange;
   // Set the maximum wireless range to maxWifiRange meters in order to reproduce a hidden nodes scenario
   // i.e. the distance between hidden stations is larger than maxWifiRange meters
   if (limitRange)
     Config::SetDefault ("ns3::RangePropagationLossModel::MaxRange", DoubleValue (maxWifiRange));
+  config.limitRange = limitRange;
 
   config.simulationTime = simulationTime;
   config.nWifis = nWifis;
   config.nStas = nStas;
+  config.maxMsdus = maxMsdus;
   config.payloadSize = payloadSize;
   config.channelWidth = channelWidth;
   config.channelNumber = channelNumber;
@@ -767,6 +790,10 @@ int main (int argc, char *argv[])
   //Helper creates tables and populates them. Forget about routing.
   Ipv4GlobalRoutingHelper::PopulateRoutingTables ();  
 
+  YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
+  wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel"); //wireless range limited to maxWifiRange meters!
+  wifiPhy.SetChannel (wifiChannel.Create ());
+
   for (uint32_t i = 0; i < nWifis; ++i)
     {
       // calculate ssid for wifi subnetwork
@@ -806,14 +833,17 @@ int main (int argc, char *argv[])
       if (!elevenAc)
         HtWifiMacHelper wifiMac = HtWifiMacHelper::Default ();
 
-      YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
-      wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel"); //wireless range limited to xDistanceFromAp meters!
-      wifiPhy.SetChannel (wifiChannel.Create ());
+      // YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
+      // wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel"); //wireless range limited to xDistanceFromAp meters!
+      // wifiPhy.SetChannel (wifiChannel.Create ());
 
 
       /* Setting the Wifi Ap */
       wifiMac.SetType ("ns3::ApWifiMac",
                        "Ssid", SsidValue (ssid));
+
+      if (fairShare == true)
+        nMsdus = maxMsdus;
 
       wifiMac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
                                                   "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
