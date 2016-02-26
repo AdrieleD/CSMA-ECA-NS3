@@ -5,7 +5,7 @@ use Switch;
 my $nStas = $ARGV[1];
 my $nWifis = $ARGV[0];
 my $rep = 1;
-my $simulationTime = 2;
+my $simulationTime = 10;
 my $seed = -1; #Keep -1 to leave unchanged
 my $stickiness = 0;
 # my $EIFSnoDIFS = 1; #see collisions.numbers

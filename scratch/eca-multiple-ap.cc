@@ -374,6 +374,13 @@ finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
               if (config.fairShare)
                 edca->SetFairShare ();
             }
+
+          /* Manually increasing the minimum deterministic backoff */
+          if (config.defaultPositions == 4)
+            {
+              uint32_t backoffStage = 4;
+              edca->SetMinCw ((std::pow (2, backoffStage) * (edca->GetMinCw () + 1) -1));
+            }
           /* Universal variables. For visualization only */
           CwMin = edca->GetMinCw ();
           CwMax = edca->GetMaxCw ();
