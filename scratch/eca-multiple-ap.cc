@@ -93,6 +93,10 @@ struct sim_config
   double yDistanceFromAp;
   uint16_t beta;
 
+  /* Channel and CCA */
+  double edTheshold;
+  double cca1Threshold;
+
   /* Protocol specific */
   bool eca;
   bool hysteresis;
@@ -147,7 +151,8 @@ GetJFI (int nStas, std::vector<uint64_t> &udpClientSentPackets)
 }
 
 void
-channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevices, std::vector<NetDeviceContainer> apDevices)
+channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevices, 
+  std::vector<NetDeviceContainer> apDevices)
 {
   /* Getting YansWifiChannel */
   NS_ASSERT (config.nWifis == staDevices.size ());
@@ -155,39 +160,50 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
 
   for (uint32_t i = 0; i < apDevices.size (); i++)
     {
+      //Navigating every WLAN
+
       Ptr<YansWifiChannel> channelAp;
       Ptr<YansWifiPhy> phyAp;
 
-      /* apDevices have more than one device. We use an iterator
+      /* apDevices have more than one net device. We use an iterator
       *  and an Assert over channelAp to confirm that we chose the 
       *  correct channel pointer. */
       uint32_t nDevices = apDevices.at (i).GetN ();
       for (uint32_t n = 0; n < nDevices; n ++)
         {
-          channelAp = apDevices.at (i).Get (n)->GetObject<WifiNetDevice> ()->GetChannel ()->GetObject<YansWifiChannel> ();
-          phyAp = apDevices.at (i).Get (n)->GetObject<WifiNetDevice> ()->GetPhy ()->GetObject<YansWifiPhy> ();
+          channelAp = apDevices.at (i).Get (n)->GetObject<WifiNetDevice> ()->
+            GetChannel ()->GetObject<YansWifiChannel> ();
+          phyAp = apDevices.at (i).Get (n)->GetObject<WifiNetDevice> ()->
+            GetPhy ()->GetObject<YansWifiPhy> ();
           if (channelAp)
             break;
         }
-      NS_ASSERT (channelAp);
+      NS_ASSERT (channelAp); // GetObject<YansWifiChannel> () can return false
 
       phyAp->SetChannelWidth (config.channelWidth);
       phyAp->SetChannelNumber (config.channelNumber);
+
+      /* Setting the CCA parameters for AP */
+      phyAp->SetEdThreshold (config.edTheshold);
+      phyAp->SetCcaMode1Threshold (config.cca1Threshold);
 
       std::cout << "\n###Channel###" << std::endl;
       std::cout << "- Ap-" << i << ": " << channelAp->GetNDevices () << " connected devices" << std::endl;
       std::cout << "\t- Wifi channel: " << phyAp->GetChannelNumber () << std::endl;
       std::cout << "\t- Frequency: " << phyAp->GetChannelFrequencyMhz () << " MHz" << std::endl;
       std::cout << "\t- Width: " << phyAp->GetChannelWidth () << " MHz" << std::endl;
+      std::cout << "\t- Cca threshold : " << phyAp->GetCcaMode1Threshold () << " dBm" << std::endl;
       std::cout << "\t- Energy detection threshold: " << phyAp->GetEdThreshold () << " dBm" << std::endl;
       std::cout << "\t- Tx levels. Min: " << phyAp->GetTxPowerStart () << ", Max: " << phyAp->GetTxPowerEnd () << " dBm" << std::endl;
       if (config.limitRange) 
         std::cout << "\t- Max transmission range: " << config.maxWifiRange << " m" << std::endl;
 
 
+      /* Checking STAs for this WLAN */
       NS_ASSERT (staDevices.at (i).GetN () == config.nStas);
       uint32_t nStas = staDevices.at (i).GetN ();
-      double staEdThreshold = 0.0;
+      std::vector<double> staEdThreshold;
+      staEdThreshold.assign (nStas, 0);
       for (uint32_t j = 0; j < nStas; j++)
         {
           Ptr<YansWifiChannel> channelSta = staDevices.at (i).Get (j)->GetObject<WifiNetDevice> ()->GetChannel ()
@@ -197,19 +213,28 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
 
           phySta->SetChannelWidth (config.channelWidth);
           phySta->SetChannelNumber (config.channelNumber);
+          phySta->SetEdThreshold (config.edTheshold);
+          phySta->SetCcaMode1Threshold (config.cca1Threshold);
 
-          staEdThreshold = phySta->GetEdThreshold ();
+
+          staEdThreshold.at (j) = phySta->GetEdThreshold ();
+
+          /* Checking that AP and STAs PHY settings are the same */
+          NS_ASSERT (phySta->GetChannelNumber () == phyAp->GetChannelNumber ());
+          NS_ASSERT (phySta->GetChannelWidth () == phyAp->GetChannelWidth ());
+          NS_ASSERT (phySta->GetEdThreshold () == phyAp->GetEdThreshold ());
         }
-      std::cout << "\t- Stations's energy detection threshold: " << staEdThreshold << " dBm" << std::endl;
+      std::cout << "\t- Stations's energy detection threshold: " << staEdThreshold.at (0) << " dBm" << std::endl;
     }
 }
 
 void
-mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility, NodeContainer &backboneNodes, 
-  std::vector<NodeContainer> sta)
+mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility, 
+  NodeContainer &backboneNodes, std::vector<NodeContainer> sta)
 {
   NS_ASSERT (config.nWifis == backboneNodes.GetN ());
   NS_ASSERT (config.nWifis == mobility.size ());
+
   Ptr<ListPositionAllocator> positionAlloc;
   Vector apPos;
   Vector staPos;
@@ -219,14 +244,13 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
       NS_ASSERT (sta.at (i).GetN () == config.nStas);
       switch (config.defaultPositions)
         {
-          //Squares surrounding the Ap
+          //STAs and AP are in the same coordinate
           case 1:
-            NS_ASSERT (config.nStas == 4);
             goto setupPositions;
             break;
-          //Three linear square networks, like case 1.
+          //Three linear networks with 1 stas around AP
           case 2:
-            NS_ASSERT (config.nStas == 4 && config.nWifis == 3);
+            NS_ASSERT (config.nStas == 1 && config.nWifis == 3);
             goto setupPositions;
             break;
           //Hundred linear square networks, like case 1.
@@ -273,20 +297,27 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
 
         for (uint32_t j = 0; j < config.nStas; j++)
           { 
-            switch (j)
+            if (config.defaultPositions > 2)
               {
-                case 0:
-                  staPos = Vector (config.wifiX + config.xDistanceFromAp, config.yDistanceFromAp, 0.0);
-                  break;
-                case 1:
-                  staPos = Vector (config.wifiX - config.xDistanceFromAp, config.yDistanceFromAp, 0.0);
-                  break;
-                case 2:
-                  staPos = Vector (config.wifiX - config.xDistanceFromAp, -1.0 * config.yDistanceFromAp, 0.0);
-                  break;
-                case 3:
-                  staPos = Vector (config.wifiX + config.xDistanceFromAp, -1.0 * config.yDistanceFromAp, 0.0);
-                  break;
+              switch (j)
+                {
+                  case 0:
+                    staPos = Vector (config.wifiX + config.xDistanceFromAp, config.yDistanceFromAp, 0.0);
+                    break;
+                  case 1:
+                    staPos = Vector (config.wifiX - config.xDistanceFromAp, config.yDistanceFromAp, 0.0);
+                    break;
+                  case 2:
+                    staPos = Vector (config.wifiX - config.xDistanceFromAp, -1.0 * config.yDistanceFromAp, 0.0);
+                    break;
+                  case 3:
+                    staPos = Vector (config.wifiX + config.xDistanceFromAp, -1.0 * config.yDistanceFromAp, 0.0);
+                    break;
+                }
+              }
+            else
+              {
+                staPos = apPos;
               }
               positionAlloc->Add (staPos);
           }
@@ -303,6 +334,7 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
       // ss << filename << i;
       // std::string positionLog = ss.str();
       // Ptr<OutputStreamWrapper> position_stream = asciiTraceHelper.CreateFileStream (positionLog);
+
       showPositions: 
         std::cout << "###Mobility###" << std::endl;
         std::cout << "- Wifi-" << i << std::endl;
@@ -328,14 +360,14 @@ finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
   NS_ASSERT (config.nWifis == allNodes.size ());
 
   uint32_t CwMin, CwMax;
+
   std::cout << "\n###MAC and other parameters###" << std::endl;
   for (uint32_t i = 0; i < config.nWifis; i++)
     {
       NS_ASSERT (allNodes.at (i).GetN () == config.nStas);
       uint32_t device = 1; // device for stas
-      /*
-       * Navigating through stations for providing Arp entries.
-       */
+
+      /* Navigating through stations for providing Arp entries */
       uint32_t nStas = allNodes.at (i).GetN ();
       for (uint32_t j = 0; j < nStas; j++)
         {
@@ -374,13 +406,7 @@ finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
               if (config.fairShare)
                 edca->SetFairShare ();
             }
-
-          /* Manually increasing the minimum deterministic backoff */
-          if (config.defaultPositions == 4)
-            {
-              uint32_t backoffStage = 4;
-              edca->SetMinCw ((std::pow (2, backoffStage) * (edca->GetMinCw () + 1) -1));
-            }
+            
           /* Universal variables. For visualization only */
           CwMin = edca->GetMinCw ();
           CwMax = edca->GetMaxCw ();
@@ -431,7 +457,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
       double attempts = 0;
       double sx = 0;
 
-      // /* Looking at each Sta's position */
+      /* Looking at each Sta's position */
       AsciiTraceHelper asciiTraceHelper;
       std::string filename = "position-";
       std::stringstream ss;
@@ -449,8 +475,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
           uint32_t totalPacketsThrough = DynamicCast<UdpServer> (config.servers.at (i).Get (j))->GetReceived ();
           double addThroughput = totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0);
           throughput += addThroughput;
-          std::cout << "\t-Sta-" << j << ": " << totalPacketsThrough * config.payloadSize * 8 / (config.simulationTime * 1000000.0) 
-            << " Mbps" << std::endl;
+          std::cout << "\t-Sta-" << j << ": " << addThroughput << " Mbps" << std::endl;
           results->udpClientSentPackets.at (i).at (j) = totalPacketsThrough;
 
           /* Gathering per Sta information */
@@ -472,7 +497,14 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
       std::cout << "\n-MAC and other details" << std::endl;
       for (uint32_t j = 0; j < results->nStas+1; j++)
         {
-          std::cout << "\n\t-Sta-" << j << std::endl;
+          if (j == 0)
+            {
+              std::cout << "\n\t-AP-" << j << std::endl;
+            }
+          else
+            {
+              std::cout << "\n\t-Sta-" << j << std::endl;
+            }
           totalFails += results->failTx.at (i).at (j);
           col += results->colTx.at (i).at (j);
           attempts += results->txAttempts.at (i).at (j);
@@ -481,7 +513,8 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
           if (results->sxTx.at (i).at (j) > 0)
             timeBetweenSxTx.at (i).at (j) = MicroSeconds ((results->sumTimeBetweenSxTx.at (i).at (j).GetMicroSeconds ()) /
               results->sxTx.at (i).at (j) );
-          overallTimeBetweenSxTx.at(i) += timeBetweenSxTx.at (i).at (j).GetSeconds ();
+          if (j > 0)
+            overallTimeBetweenSxTx.at(i) += timeBetweenSxTx.at (i).at (j).GetSeconds ();
 
           std::cout << "\tTx Attmpts: " << results->txAttempts.at (i).at (j) << std::endl;
           std::cout << "\tSx Frames: " << results->sxTx.at (i).at (j) << std::endl;
@@ -496,7 +529,8 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
         std::cout << "-Fraction of failed transmissions: " << failFrac << std::endl;
         double jfi = GetJFI (results->nStas, results->udpClientSentPackets.at (i));
         std::cout << "-JFI: " << jfi << std::endl;
-        std::cout << "-Overall Time between sx tx: " << overallTimeBetweenSxTx.at (i) << ".0s" << std::endl;
+        overallTimeBetweenSxTx.at (i) /= results->nStas;
+        std::cout << "-Overall Time between sx tx: " << overallTimeBetweenSxTx.at (i) << " s" << std::endl;
         
         // double index = attempts - (col + totalFails + sx);
         // std::cout << "-Count index: " << index << std::endl;
@@ -518,8 +552,8 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
     if (multi) std::cout << "\n###Complete topology statistics###" << std::endl;
     for (uint32_t i = 0; i < results->nWifis; i++)
       {
-        std::cout << "- Wlan-" << i << std::endl;
-        std::cout << "\t- Throughput: " << topologyThroughput.at (i) << std::endl;
+        std::cout << "\n- Wlan-" << i << std::endl;
+        std::cout << "\t- Throughput (Mbps): " << topologyThroughput.at (i) << std::endl;
         std::cout << "\t- Fraction of failures: " << topologyFailedTx.at (i) << std::endl;
         std::cout << "\t- JFI: " << topologyJFI.at (i) << std::endl;
         std::cout << "\t- Avg. Time between Sx Tx: " << overallTimeBetweenSxTx.at (i) << std::endl;
@@ -629,14 +663,14 @@ int main (int argc, char *argv[])
   double deltaWifiX = 30.0;
   bool elevenAc = false;
   bool shortGuardInterval = true;
-  uint32_t dataRateAc  = 8; // Vht mcs
-  uint32_t controlRateAc = 8; // Vht mcs
+  uint32_t dataRateAc  = 7; // Vht mcs
+  uint32_t controlRateAc = 7; // Vht mcs
   std::string dataRate ("HtMcs7");
   std::string controlRate ("HtMcs7");
   uint32_t nMsdus = 1;
   uint32_t maxMsdus = 1024/16; /* Cwmax / Cwmin */
   bool randomWalk = false;
-  uint32_t payloadSize = 1470; //bytes
+  uint32_t payloadSize = 1470; //bytesq
   bool enableRts = false;
   int32_t seed = -1;
   uint32_t destPort = 1000;
@@ -651,6 +685,10 @@ int main (int argc, char *argv[])
   double maxWifiRange = 0.0;
   bool limitRange = false;
   // double edThesholdM = 100.0; // in meters
+
+  /* Channel and CCA settings */
+  double edTheshold = -82; //dBm
+  double cca1Threshold = -62; //dBm
 
   /* Protocol specific */
   bool eca = false;
@@ -687,6 +725,8 @@ int main (int argc, char *argv[])
   cmd.AddValue ("fairShare", "Fair Share", fairShare);
   cmd.AddValue ("bitmap", "Bitmap activation", bitmap);
   cmd.AddValue ("dynStick", "Dynamic stickiness", dynStick);
+  cmd.AddValue ("edTheshold", "Energy detection threshold", edTheshold);
+  cmd.AddValue ("cca1Threshold", "CCA threshold", cca1Threshold);
   cmd.Parse (argc, argv);
 
   if (!enableRts)
@@ -730,7 +770,7 @@ int main (int argc, char *argv[])
   maxWifiRange = std::sqrt (alpha * std::pow (xDistanceFromAp, 2) + std::pow (yDistanceFromAp, 2));
   config.maxWifiRange = maxWifiRange;
   
-  const double beta = 9;
+  const double beta = 5;
   deltaWifiX = beta * xDistanceFromAp;
   config.beta = beta;
 
@@ -739,6 +779,9 @@ int main (int argc, char *argv[])
   if (limitRange)
     Config::SetDefault ("ns3::RangePropagationLossModel::MaxRange", DoubleValue (maxWifiRange));
   config.limitRange = limitRange;
+
+  config.edTheshold = edTheshold;
+  config.cca1Threshold = cca1Threshold;
 
   config.simulationTime = simulationTime;
   config.nWifis = nWifis;
@@ -749,7 +792,7 @@ int main (int argc, char *argv[])
   config.channelNumber = channelNumber;
 
   config.randomWalk = randomWalk;
-  if (defaultPositions > 0)
+  if (defaultPositions > 2)
     NS_ASSERT (nStas >= 4 && nStas % 4 == 0);
   config.deltaWifiX = deltaWifiX;
   config.defaultPositions = defaultPositions;
@@ -826,6 +869,7 @@ int main (int argc, char *argv[])
         {
           /* Set guard interval, PHY details and Vht rates */
           wifiPhy.Set ("ShortGuardEnabled", BooleanValue (shortGuardInterval));
+          wifiPhy.Set ("ChannelWidth", UintegerValue (channelWidth));
           wifi.SetStandard (WIFI_PHY_STANDARD_80211ac);
           StringValue dataRate = VhtWifiMacHelper::DataRateForMcs (dataRateAc);
           StringValue controlRate = VhtWifiMacHelper::DataRateForMcs (controlRateAc);
@@ -933,8 +977,8 @@ int main (int argc, char *argv[])
     {
       LogComponentEnable ("EdcaTxopN", LOG_LEVEL_DEBUG);
       LogComponentEnable ("DcfManager", LOG_LEVEL_DEBUG);
-      LogComponentEnable ("MsduStandardAggregator", LOG_LEVEL_DEBUG);
-      LogComponentEnable ("MsduAggregator", LOG_LEVEL_DEBUG);
+      // LogComponentEnable ("MsduStandardAggregator", LOG_LEVEL_DEBUG);
+      // LogComponentEnable ("MsduAggregator", LOG_LEVEL_DEBUG);
       LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
       LogComponentEnable ("InterferenceHelper", LOG_LEVEL_DEBUG);
     }

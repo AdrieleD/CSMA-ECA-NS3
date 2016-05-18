@@ -692,7 +692,7 @@ YansWifiPhy::StartReceivePreambleAndHeader (Ptr<Packet> packet,
         }
       else
         {
-          NS_LOG_DEBUG ("drop packet because signal power too Small (" <<
+          NS_LOG_DEBUG ("drop packet because signal power too small (" <<
                         rxPowerW << "<" << m_edThresholdW << ")");
           NotifyRxDrop (packet);
           m_plcpSuccess = false;
@@ -715,18 +715,20 @@ maybeCcaBusy:
   //tracked by the InterferenceHelper class is higher than the CcaBusyThreshold
 
   Time delayUntilCcaEnd = m_interference.GetEnergyDuration (m_ccaMode1ThresholdW);
+  // if (rxPowerW < m_edThresholdW)
+  //   delayUntilCcaEnd = NanoSeconds(0);
 
   if (!delayUntilCcaEnd.IsZero ())
     {
       NS_LOG_DEBUG ("Maybe Cca Busy, deferring: " << delayUntilCcaEnd.GetNanoSeconds ());
       m_state->SwitchMaybeToCcaBusy (delayUntilCcaEnd);
     }
-  else if (rxPowerW < m_edThresholdW)
+  else
     {
       // delayUntilCcaEnd = rxDuration;
-      NS_LOG_DEBUG ("A transmission detected in the interference range, deferring for: " 
+      NS_LOG_DEBUG ("A transmission detected bellow the energy detection threshold, therefore deferring for: " 
         << delayUntilCcaEnd.GetNanoSeconds ());
-      // m_state->SwitchMaybeToCcaBusy (delayUntilCcaEnd);
+      m_state->SwitchMaybeToCcaBusy (delayUntilCcaEnd);
     }
 }
 
@@ -997,7 +999,8 @@ YansWifiPhy::Configure80211ac (void)
 {
   NS_LOG_FUNCTION (this);
   m_channelStartingFrequency = 5e3;   //5.000 GHz
-  SetChannelWidth (80); //80 MHz
+  // SetChannelWidth (80); //80 MHz
+  SetChannelWidth (GetChannelWidth ());
 
   m_deviceRateSet.push_back (WifiPhy::GetOfdmRate6Mbps ());
   m_deviceRateSet.push_back (WifiPhy::GetOfdmRate12Mbps ());

@@ -1,13 +1,19 @@
 #!/usr/local/bin/perl
+use warnings;
+use strict;
 use List::Util qw(first max maxstr min minstr reduce shuffle sum);
 use Switch;
 
-my $nStas = $ARGV[1];
-my $nWifis = $ARGV[0];
+use constant false => 0;
+use constant true  => 1;
+
+my $scenario = $ARGV[0];
+my $nStas = 1;
+my $nWifis = 1;
 my $rep = 1;
-my $simulationTime = 10;
+my $simulationTime = 25;
 my $seed = -1; #Keep -1 to leave unchanged
-my $stickiness = 0;
+my $stickiness = 1;
 # my $EIFSnoDIFS = 1; #see collisions.numbers
 # my $AckTimeout = 1; 
 # my $frameMinFer = 0.1;
@@ -19,54 +25,68 @@ my $xDistanceFromAp = 10.0; #x component of maxWifiRange calculation
 # 2 = 3 Aps, separated like #1.
 # 3 = 100 Aps, separated like #1.
 # 4 = same as 2, but nodes are really close to their respective Aps
-my $defaultPositions = 4; #different experiments
+my $defaultPositions = 2;
 
 
 my $eca = false;
 my $hyst = false;
-my $bitmap = false;
 # my $verbose = false;
 my $dynStick = false;
 my $fairShare = false;
 my $bitmap = false;
 my $limitRange = false;
-# my $srConservative = false;
-# my $srResetMode = false;
+my $srConservative = false;
+my $srResetMode = false;
 my $elevenAc = false; #sets 802.11ac mcs
 my @command = './waf --cwd=tmp3/ --run "scratch/eca-multiple-ap';
 
-foreach (@ARGV){
-	$eca = true
-		if $_ eq '--eca';
-	$hyst = true
-		if $_ eq '--hyst';
-	$bitmap = true
-		if $_ eq '--bitmap';
-	# $verbose = true
-	# 	if $_ eq '--verbose';
-	$dynStick = true
-		if $_ eq '--dynStick';
-	# $srResetMode = true
-	# 	if $_ eq '--srResetMode';
-	# $srConservative = true
-	# 	if $_ eq '--srConservative';
-	$fairShare = true
-		if $_ eq '--fairShare';
-	$elevenAc = true
-		if $_ eq '--elevenAc';
 
-	$limitRange = true
-		if $_ eq '--limitRange';
+switch ($scenario){
+
+	case "single"{
+		$rep = 1;
+		$eca = true;
+		$hyst = true;
+		$fairShare = true;
+		$defaultPositions = 1;
+		
+	}
+	case "DCF"{
+		$stickiness = 0;
+	}
+
+	case "ECA1"{
+		$eca = true;
+		$hyst = true;
+		$stickiness = 1;
+	}
+
+	case "ECA"{
+		$eca = true;
+		$hyst = true;
+		$stickiness = 1;
+		$fairShare = true;
+	}
+
+	case "ECA+"{
+		$eca = true;
+		$hyst = true;
+		$stickiness = 1;
+		$fairShare = true;
+		$bitmap = true;
+		$dynStick = true;
+	}
 }
 
 #Modifying parameters according to test scenario
 if ($defaultPositions > 0){
 	switch ($defaultPositions){
 		case 1 {
-			$nStas = 4;
+			$nStas = 10;
+			$nWifis = 1;
 		}
 		case 2 {
-			$nStas = 4;
+			$nStas = 1;
 			$nWifis = 3;
 		}
 		case 3 {
@@ -95,6 +115,7 @@ foreach my $j (1 .. $rep){
 					--bitmap=$bitmap
 					--dynStick=$dynStick
 					--fairShare=$fairShare
+					--stickiness=$stickiness
 					--defaultPositions=$defaultPositions
 					--limitRange=$limitRange\"");
 	my @outPut = "@command @addition";
@@ -105,6 +126,7 @@ foreach my $j (1 .. $rep){
 
 
 #Sending email at the end of the simulation
-# my $simulation = "$simulationTime-$eca-$hyst-$stickiness-$dynStick-$bitmap-$srResetMode-$srConservative-$fairShare";
-# my @mail = ("./sendMail.pl $simulation");
-# system(@mail);
+my $simulation = "$simulationTime-$eca-$hyst-$stickiness-$dynStick-$bitmap-$srResetMode-$srConservative-$fairShare";
+my @mail = ("./sendMail.pl $simulation");
+# system(@mail)
+# 	if ($scenario ne "single");
