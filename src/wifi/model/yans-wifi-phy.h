@@ -415,6 +415,7 @@ public:
   void SetFrameMinFer (double minFer);
   double GetFrameMinFer (void);
   void UpdateFrameErrorCount (void);
+  void UpdatePreableHeaderTracedPowerRx (double value);
 
 private:
   virtual void DoInitialize (void);
@@ -589,8 +590,8 @@ private:
   bool m_plcpSuccess;                   //!< Flag if the PLCP of the packet or the first MPDU in an A-MPDU has been received
   double m_minFer;                      //!< Minimum frame error rate
 
-
   TracedValue<uint64_t> m_errorFrames;  //!< Number of frames affected by m_minFer
+  TracedValue<double> m_rxPowerDbm;     //!< Preamble header received power in dBm
 };
 
 } //namespace ns3

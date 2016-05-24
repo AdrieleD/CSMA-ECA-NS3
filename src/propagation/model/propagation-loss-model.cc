@@ -148,8 +148,8 @@ FriisPropagationLossModel::GetTypeId (void)
     .SetGroupName ("Propagation")
     .AddConstructor<FriisPropagationLossModel> ()
     .AddAttribute ("Frequency", 
-                   "The carrier frequency (in Hz) at which propagation occurs  (default is 5.15 GHz).",
-                   DoubleValue (5.150e9),
+                   "The carrier frequency (in Hz) at which propagation occurs  (default is 5.24 GHz).",
+                   DoubleValue (5.240e9),
                    MakeDoubleAccessor (&FriisPropagationLossModel::SetFrequency,
                                        &FriisPropagationLossModel::GetFrequency),
                    MakeDoubleChecker<double> ())
@@ -254,6 +254,10 @@ FriisPropagationLossModel::DoCalcRxPower (double txPowerDbm,
    * lambda: wavelength (m)
    */
   double distance = a->GetDistanceFrom (b);
+
+  NS_LOG_DEBUG ("node at [x = " << a->GetPosition ().x << ", y = " << a->GetPosition ().y << 
+    "] <==> (x = " << b->GetPosition ().x << ", y = " << b->GetPosition ().y << ")");
+
   if (distance < 3*m_lambda)
     {
       NS_LOG_WARN ("distance not within the far field region => inaccurate propagation loss value");

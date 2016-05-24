@@ -10,22 +10,21 @@ use constant true  => 1;
 my $scenario = $ARGV[0];
 my $nStas = 1;
 my $nWifis = 1;
-my $rep = 1;
-my $simulationTime = 25;
+my $rep = 5;
+my $simulationTime = 10;
 my $seed = -1; #Keep -1 to leave unchanged
-my $stickiness = 1;
+my $stickiness = 0;
 # my $EIFSnoDIFS = 1; #see collisions.numbers
 # my $AckTimeout = 1; 
 # my $frameMinFer = 0.1;
 my $channelWidth = 20;
 my $xDistanceFromAp = 10.0; #x component of maxWifiRange calculation
 
-# 0 = default, line of nodes radiating from Ap, separated by 0.1 m
-# 1 = 2 Aps, separated by beta*maxWifiRanges
+# 1 = default, line of nodes radiating from Ap, separated by 0.1 m
 # 2 = 3 Aps, separated like #1.
-# 3 = 100 Aps, separated like #1.
+# 3 = any number of Aps, separated like #1, with random distribution of nodes
 # 4 = same as 2, but nodes are really close to their respective Aps
-my $defaultPositions = 2;
+my $defaultPositions = 1;
 
 
 my $eca = false;
@@ -45,10 +44,10 @@ switch ($scenario){
 
 	case "single"{
 		$rep = 1;
-		$eca = true;
-		$hyst = true;
-		$fairShare = true;
-		$defaultPositions = 1;
+		$eca = false;
+		$hyst = false;
+		$fairShare = false;
+		$defaultPositions = 2;
 		
 	}
 	case "DCF"{
@@ -79,24 +78,18 @@ switch ($scenario){
 }
 
 #Modifying parameters according to test scenario
-if ($defaultPositions > 0){
-	switch ($defaultPositions){
-		case 1 {
-			$nStas = 10;
-			$nWifis = 1;
-		}
-		case 2 {
-			$nStas = 1;
-			$nWifis = 3;
-		}
-		case 3 {
-			$nStas = 4;
-			$nWifis = 100;
-		}
-		case 4 {
-			$nStas = 4;
-			$nWifis = 3;
-		}
+switch ($defaultPositions){
+	case 1 {
+		$nStas = 1;
+		$nWifis = 2;
+	}
+	case 2 {
+		$nStas = 4;
+		$nWifis = 3;
+	}
+	case 3 {
+		$nStas = 4;
+		$nWifis = 10;
 	}
 }
 
@@ -124,6 +117,10 @@ foreach my $j (1 .. $rep){
 	system(@outPut);
 }
 
+#Now, process the files
+my $outputFile = 'results3.log';
+my @process = "cd ~/Dropbox/PhD/Research/NS3/ns-allinone-3.24.1/bake/source/ns-3.24/tmp3 && ./process3 $outputFile";
+system(@process);
 
 #Sending email at the end of the simulation
 my $simulation = "$simulationTime-$eca-$hyst-$stickiness-$dynStick-$bitmap-$srResetMode-$srConservative-$fairShare";

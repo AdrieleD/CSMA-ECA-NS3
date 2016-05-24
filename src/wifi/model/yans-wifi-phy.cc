@@ -176,6 +176,9 @@ YansWifiPhy::GetTypeId (void)
     .AddTraceSource ("FramesWithErrors", "Number of frames affected by errors",
                     MakeTraceSourceAccessor (&YansWifiPhy::m_errorFrames),
                     "ns3::Traced::Value::Uint64Callback")
+    .AddTraceSource ("PreambleHeaderPower", "Power of preamble header in dBm",
+                    MakeTraceSourceAccessor (&YansWifiPhy::m_rxPowerDbm),
+                    "ns3::Traced::Value::DoubleCallback")
   ;
   return tid;
 }
@@ -189,7 +192,8 @@ YansWifiPhy::YansWifiPhy ()
     m_mpdusNum (0),
     m_plcpSuccess (false),
     m_minFer (0),
-    m_errorFrames (0)
+    m_errorFrames (0),
+    m_rxPowerDbm (0.0)
 {
   NS_LOG_FUNCTION (this);
   m_random = CreateObject<UniformRandomVariable> ();
@@ -578,6 +582,8 @@ YansWifiPhy::StartReceivePreambleAndHeader (Ptr<Packet> packet,
   NS_LOG_FUNCTION (this << packet << rxPowerDbm << txVector.GetMode () << preamble << (uint32_t)aMpdu.packetType);
   AmpduTag ampduTag;
   rxPowerDbm += m_rxGainDb;
+  UpdatePreableHeaderTracedPowerRx (rxPowerDbm);
+
   double rxPowerW = DbmToW (rxPowerDbm);
   Time endRx = Simulator::Now () + rxDuration;
   Time preambleAndHeaderDuration = CalculatePlcpPreambleAndHeaderDuration (txVector, preamble);
@@ -715,8 +721,6 @@ maybeCcaBusy:
   //tracked by the InterferenceHelper class is higher than the CcaBusyThreshold
 
   Time delayUntilCcaEnd = m_interference.GetEnergyDuration (m_ccaMode1ThresholdW);
-  // if (rxPowerW < m_edThresholdW)
-  //   delayUntilCcaEnd = NanoSeconds(0);
 
   if (!delayUntilCcaEnd.IsZero ())
     {
@@ -725,7 +729,6 @@ maybeCcaBusy:
     }
   else
     {
-      // delayUntilCcaEnd = rxDuration;
       NS_LOG_DEBUG ("A transmission detected bellow the energy detection threshold, therefore deferring for: " 
         << delayUntilCcaEnd.GetNanoSeconds ());
       m_state->SwitchMaybeToCcaBusy (delayUntilCcaEnd);
@@ -1223,6 +1226,12 @@ void
 YansWifiPhy::UpdateFrameErrorCount (void)
 {
   m_errorFrames += 1;
+}
+
+void
+YansWifiPhy::UpdatePreableHeaderTracedPowerRx (double value)
+{
+  m_rxPowerDbm = value;
 }
 
 int64_t

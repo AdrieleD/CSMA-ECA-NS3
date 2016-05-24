@@ -54,6 +54,7 @@
 #include "ns3/bridge-helper.h"
 #include "ns3/assert.h"
 #include "ns3/propagation-loss-model.h"
+#include "ns3/random-variable-stream.h"
 #include <vector>
 #include <stdint.h>
 #include <sstream>
@@ -83,6 +84,7 @@ struct sim_config
   uint32_t payloadSize;
   uint32_t channelWidth;
   uint16_t channelNumber;
+  double freq;
   double maxWifiRange;
   bool limitRange;
 
@@ -158,6 +160,7 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
   NS_ASSERT (config.nWifis == staDevices.size ());
   NS_ASSERT (apDevices.size () == config.nWifis);
 
+
   for (uint32_t i = 0; i < apDevices.size (); i++)
     {
       //Navigating every WLAN
@@ -179,6 +182,7 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
             break;
         }
       NS_ASSERT (channelAp); // GetObject<YansWifiChannel> () can return false
+    
 
       phyAp->SetChannelWidth (config.channelWidth);
       phyAp->SetChannelNumber (config.channelNumber);
@@ -196,7 +200,9 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
       std::cout << "\t- Energy detection threshold: " << phyAp->GetEdThreshold () << " dBm" << std::endl;
       std::cout << "\t- Tx levels. Min: " << phyAp->GetTxPowerStart () << ", Max: " << phyAp->GetTxPowerEnd () << " dBm" << std::endl;
       if (config.limitRange) 
-        std::cout << "\t- Max transmission range: " << config.maxWifiRange << " m" << std::endl;
+        {
+          std::cout << "\t- Max transmission range: " << config.maxWifiRange << " m" << std::endl;
+        }
 
 
       /* Checking STAs for this WLAN */
@@ -213,9 +219,9 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
 
           phySta->SetChannelWidth (config.channelWidth);
           phySta->SetChannelNumber (config.channelNumber);
+
           phySta->SetEdThreshold (config.edTheshold);
           phySta->SetCcaMode1Threshold (config.cca1Threshold);
-
 
           staEdThreshold.at (j) = phySta->GetEdThreshold ();
 
@@ -239,6 +245,10 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
   Vector apPos;
   Vector staPos;
 
+  bool random = false;
+  Ptr<UniformRandomVariable> rX = CreateObject<UniformRandomVariable> ();
+  Ptr<UniformRandomVariable> rY = CreateObject<UniformRandomVariable> ();
+
   for (uint32_t i = 0; i < config.nWifis; i++)
     {
       NS_ASSERT (sta.at (i).GetN () == config.nStas);
@@ -248,14 +258,14 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
           case 1:
             goto setupPositions;
             break;
-          //Three linear networks with 1 stas around AP
+          //Three linear networks with 4 stas forming a cross centered in the AP
           case 2:
-            NS_ASSERT (config.nStas == 1 && config.nWifis == 3);
+            NS_ASSERT (config.nStas == 4 && config.nWifis == 3);
             goto setupPositions;
             break;
           //Hundred linear square networks, like case 1.
           case 3:
-            NS_ASSERT (config.nStas == 4 && config.nWifis == 100);
+            random = true;
             goto setupPositions;
             break;
           //Same as 2, but nodes are very close to their Ap
@@ -295,29 +305,42 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
         apPos = Vector (config.wifiX, 0.0, 0.0);
         positionAlloc->Add (apPos);
 
+        rX->SetAttribute ("Min", DoubleValue (config.wifiX - config.xDistanceFromAp));
+        rX->SetAttribute ("Max", DoubleValue (config.wifiX + config.xDistanceFromAp));
+        rY->SetAttribute ("Min", DoubleValue (-1.0 * config.yDistanceFromAp));
+        rY->SetAttribute ("Max", DoubleValue (config.yDistanceFromAp));
+
         for (uint32_t j = 0; j < config.nStas; j++)
           { 
-            if (config.defaultPositions > 2)
+            if (!random)
               {
-              switch (j)
-                {
-                  case 0:
-                    staPos = Vector (config.wifiX + config.xDistanceFromAp, config.yDistanceFromAp, 0.0);
-                    break;
-                  case 1:
-                    staPos = Vector (config.wifiX - config.xDistanceFromAp, config.yDistanceFromAp, 0.0);
-                    break;
-                  case 2:
-                    staPos = Vector (config.wifiX - config.xDistanceFromAp, -1.0 * config.yDistanceFromAp, 0.0);
-                    break;
-                  case 3:
-                    staPos = Vector (config.wifiX + config.xDistanceFromAp, -1.0 * config.yDistanceFromAp, 0.0);
-                    break;
-                }
+                if (config.defaultPositions == 2)
+                  {
+                    NS_ASSERT (config.nStas == 4);
+                    switch (j)
+                      {
+                        case 0:
+                          staPos = Vector (config.wifiX + config.xDistanceFromAp, 0.0, 0.0);
+                          break;
+                        case 1:
+                          staPos = Vector (config.wifiX, config.yDistanceFromAp, 0.0);
+                          break;
+                        case 2:
+                          staPos = Vector (config.wifiX - config.xDistanceFromAp, 0.0, 0.0);
+                          break;
+                        case 3:
+                          staPos = Vector (config.wifiX, -1.0 * config.yDistanceFromAp, 0.0);
+                          break;
+                      }
+                  }
+                else
+                  {
+                    staPos = apPos;
+                  }
               }
             else
               {
-                staPos = apPos;
+                staPos = Vector (rX->GetValue (), rY->GetValue (), 0.0);
               }
               positionAlloc->Add (staPos);
           }
@@ -565,14 +588,6 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
 }
 
 void
-process (std::string &dataFileName)
-{
-  std::string prefix("(cd ~/Dropbox/PhD/Research/NS3/ns-allinone-3.24.1/bake/source/ns-3.24/tmp3 && ./process3 ");
-  std::string command = prefix + dataFileName + ")";
-  system(command.c_str());
-}
-
-void
 TraceFailures(Ptr<OutputStreamWrapper> stream, struct sim_results *results, std::string context, 
   uint64_t oldValue, uint64_t newValue)
 {
@@ -659,6 +674,7 @@ int main (int argc, char *argv[])
   bool sendIp = false;
   uint32_t channelWidth = 20;
   uint16_t channelNumber = 48;
+  double freq = 5.240e9;
   bool writeMobility = false;
   double deltaWifiX = 30.0;
   bool elevenAc = false;
@@ -749,7 +765,7 @@ int main (int argc, char *argv[])
   Ptr<OutputStreamWrapper> results_stream = asciiTraceHelper.CreateFileStream (resultsName, __gnu_cxx::ios_base::app);
   Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream (txLog);
   Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
-  Ptr<OutputStreamWrapper> sta_stream = asciiTraceHelper.CreateFileStream (staResultsName);
+  Ptr<OutputStreamWrapper> sta_stream = asciiTraceHelper.CreateFileStream (staResultsName,  __gnu_cxx::ios_base::app);
 
   NodeContainer backboneNodes;
   NetDeviceContainer backboneDevices;
@@ -766,18 +782,14 @@ int main (int argc, char *argv[])
   config.wifiX = 0.0; // initial x position of first Ap
   double yDistanceFromAp = xDistanceFromAp;
   config.yDistanceFromAp = yDistanceFromAp;
-  const uint16_t alpha = 110;
-  maxWifiRange = std::sqrt (alpha * std::pow (xDistanceFromAp, 2) + std::pow (yDistanceFromAp, 2));
-  config.maxWifiRange = maxWifiRange;
-  
-  const double beta = 5;
+  const double beta = 3; // Amplifies the distance between consecutive APs
   deltaWifiX = beta * xDistanceFromAp;
   config.beta = beta;
 
-  // Set the maximum wireless range to maxWifiRange meters in order to reproduce a hidden nodes scenario
-  // i.e. the distance between hidden stations is larger than maxWifiRange meters
-  if (limitRange)
-    Config::SetDefault ("ns3::RangePropagationLossModel::MaxRange", DoubleValue (maxWifiRange));
+  /* Default configuration. Simulating a grid, nodes over a cross centerd in AP */
+  const double alpha = 1.0 * 2/3 * deltaWifiX;
+  maxWifiRange = std::sqrt (std::pow (alpha, 2) + std::pow (yDistanceFromAp, 2));
+  config.maxWifiRange = maxWifiRange;    
   config.limitRange = limitRange;
 
   config.edTheshold = edTheshold;
@@ -790,9 +802,10 @@ int main (int argc, char *argv[])
   config.payloadSize = payloadSize;
   config.channelWidth = channelWidth;
   config.channelNumber = channelNumber;
+  config.freq = freq;
 
   config.randomWalk = randomWalk;
-  if (defaultPositions > 2)
+  if (defaultPositions > 1)
     NS_ASSERT (nStas >= 4 && nStas % 4 == 0);
   config.deltaWifiX = deltaWifiX;
   config.defaultPositions = defaultPositions;
@@ -840,8 +853,23 @@ int main (int argc, char *argv[])
   //Helper creates tables and populates them. Forget about routing.
   Ipv4GlobalRoutingHelper::PopulateRoutingTables ();  
 
-  YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
-  wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel"); //wireless range limited to maxWifiRange meters!
+
+  YansWifiChannelHelper wifiChannel;
+
+  // Set the maximum wireless range to maxWifiRange meters in order to reproduce a hidden nodes scenario
+  // i.e. the distance between hidden stations is larger than maxWifiRange meters
+  wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+  if (limitRange)
+      {
+        wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel", "MaxRange", DoubleValue (maxWifiRange));
+        // Config::SetDefault ("ns3::RangePropagationLossModel::MaxRange", DoubleValue (maxWifiRange));
+      }
+  else
+      {
+        wifiChannel.AddPropagationLoss ("ns3::FriisPropagationLossModel", "Frequency", DoubleValue (freq));
+        // Config::SetDefault ("ns3::FriisPropagationLossModel::Frequency", DoubleValue (freq));
+      }
+
   wifiPhy.SetChannel (wifiChannel.Create ());
 
   for (uint32_t i = 0; i < nWifis; ++i)
@@ -883,10 +911,6 @@ int main (int argc, char *argv[])
       VhtWifiMacHelper wifiMac = VhtWifiMacHelper::Default ();
       if (!elevenAc)
         HtWifiMacHelper wifiMac = HtWifiMacHelper::Default ();
-
-      // YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
-      // wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel"); //wireless range limited to xDistanceFromAp meters!
-      // wifiPhy.SetChannel (wifiChannel.Create ());
 
 
       /* Setting the Wifi Ap */
@@ -981,6 +1005,7 @@ int main (int argc, char *argv[])
       // LogComponentEnable ("MsduAggregator", LOG_LEVEL_DEBUG);
       LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
       LogComponentEnable ("InterferenceHelper", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("PropagationLossModel", LOG_LEVEL_DEBUG);
     }
 
   // Plugging the trace sources to all nodes in each network.
@@ -1013,7 +1038,6 @@ int main (int argc, char *argv[])
   Simulator::Schedule (Seconds (0.5), channelSetup, config, staDevices, apDevices);
   Simulator::Schedule (Seconds (0.5), finishSetup, config, staNodes);
   Simulator::Schedule (Seconds (simulationTime + 0.999999), finalResults, config, results_stream, &results, sta_stream, staNodes);
-  Simulator::Schedule (Seconds (simulationTime + 0.999999), process, resultsName);
 
   
 
