@@ -28,6 +28,7 @@
 #include "ns3/object-factory.h"
 #include "yans-wifi-channel.h"
 #include "ns3/propagation-loss-model.h"
+#include "ns3/buildings-propagation-loss-model.h"
 #include "ns3/propagation-delay-model.h"
 
 namespace ns3 {

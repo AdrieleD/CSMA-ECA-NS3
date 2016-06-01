@@ -76,7 +76,15 @@ PropagationLossModel::CalcRxPower (double txPowerDbm,
   double self = DoCalcRxPower (txPowerDbm, a, b);
   if (m_next != 0)
     {
+      Ptr<UniformRandomVariable> rX = CreateObject<UniformRandomVariable> ();
+      rX->SetAttribute ("Min", DoubleValue (0.0));
+      rX->SetAttribute ("Max", DoubleValue (100.0));
+
+      double id = rX->GetValue ();
+      std::cout << id << "- before: " << self << std::endl;
       self = m_next->CalcRxPower (self, a, b);
+      std::cout << id << "- after: " << self << std::endl;
+      std::cout << id << "- out" << std::endl;
     }
   return self;
 }
@@ -532,6 +540,9 @@ LogDistancePropagationLossModel::DoCalcRxPower (double txPowerDbm,
   double rxc = -m_referenceLoss - pathLossDb;
   NS_LOG_DEBUG ("distance="<<distance<<"m, reference-attenuation="<< -m_referenceLoss<<"dB, "<<
                 "attenuation coefficient="<<rxc<<"db");
+
+  NS_LOG_DEBUG ("resulting rxPower: " << txPowerDbm + rxc);
+
   return txPowerDbm + rxc;
 }
 
@@ -586,6 +597,16 @@ ThreeLogDistancePropagationLossModel::GetTypeId (void)
                    DoubleValue (46.6777),
                    MakeDoubleAccessor (&ThreeLogDistancePropagationLossModel::m_referenceLoss),
                    MakeDoubleChecker<double> ())
+    .AddAttribute ("TGax",
+                  "Using the Path loss recomended by TGax when trasversing walls in out TGax scenario",
+                  BooleanValue (false),
+                  MakeBooleanAccessor (&ThreeLogDistancePropagationLossModel::m_tgax),
+                  MakeBooleanChecker ())
+    .AddAttribute ("Frequency",
+                  "Transmission frequency for the TGax path loss model",
+                  DoubleValue (5.240e9),
+                  MakeDoubleAccessor (&ThreeLogDistancePropagationLossModel::m_frequency),
+                  MakeDoubleChecker<double> ())
   ;
   return tid;
 
@@ -606,21 +627,59 @@ ThreeLogDistancePropagationLossModel::DoCalcRxPower (double txPowerDbm,
   // See doxygen comments for the formula and explanation
 
   double pathLossDb;
+  int W = 0; // sum of walls traversed in the x of y direction
+  int F = 0; // sum of floors traversed
+  int th = 0; // threshold
+  if (distance > m_distance1)
+    th = 1;
 
   if (distance < m_distance0)
     {
-      pathLossDb = 0;
+      pathLossDb = m_referenceLoss;
+
+      if (m_tgax)
+        {
+          W = 0;
+          F = 0;
+          pathLossDb = 40.05 + 20 * std::log10 (m_frequency / 5e9)
+            + 20 * std::log10 (std::min (distance, m_distance1))
+            + th * (35 * std::log10 (distance / m_distance1))
+            + 18.3 * std::pow (F, ((F+2)/(F+1)) - 0.46)
+            + 5 * W;
+        }
     }
   else if (distance < m_distance1)
     {
       pathLossDb = m_referenceLoss
         + 10 * m_exponent0 * std::log10 (distance / m_distance0);
+
+      if (m_tgax)
+        {
+          W = 1;
+          F = 1;
+          pathLossDb = 40.05 + 20 * std::log10 (m_frequency / 5e9)
+            + 20 * std::log10 (std::min (distance, m_distance1))
+            + th * (35 * std::log10 (distance / m_distance1))
+            + 18.3 * std::pow (F, ((F+2)/(F+1)) - 0.46)
+            + 5 * W;
+        }
     }
   else if (distance < m_distance2)
     {
       pathLossDb = m_referenceLoss
         + 10 * m_exponent0 * std::log10 (m_distance1 / m_distance0)
         + 10 * m_exponent1 * std::log10 (distance / m_distance1);
+
+      if (m_tgax)
+        {
+          W = 3;
+          F = 2;
+          pathLossDb = 40.05 + 20 * std::log10 (m_frequency / 5e9)
+            + 20 * std::log10 (std::min (distance, m_distance1))
+            + th * (35 * std::log10 (distance / m_distance1))
+            + 18.3 * std::pow (F, ((F+2)/(F+1)) - 0.46)
+            + 5 * W;
+        }
     }
   else
     {
@@ -628,6 +687,16 @@ ThreeLogDistancePropagationLossModel::DoCalcRxPower (double txPowerDbm,
         + 10 * m_exponent0 * std::log10 (m_distance1 / m_distance0)
         + 10 * m_exponent1 * std::log10 (m_distance2 / m_distance1)
         + 10 * m_exponent2 * std::log10 (distance / m_distance2);
+      if (m_tgax)
+        {
+          W = 5;
+          F = 3;
+          pathLossDb = 40.05 + 20 * std::log10 (m_frequency / 5e9)
+            + 20 * std::log10 (std::min (distance, m_distance1))
+            + th * (35 * std::log10 (distance / m_distance1))
+            + 18.3 * std::pow (F, ((F+2)/(F+1)) - 0.46)
+            + 5 * W;
+        }
     }
 
   NS_LOG_DEBUG ("ThreeLogDistance distance=" << distance << "m, " <<

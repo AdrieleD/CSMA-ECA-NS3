@@ -46,6 +46,12 @@
 
 #include "ns3/core-module.h"
 #include "ns3/mobility-module.h"
+#include <ns3/buildings-helper.h>
+#include <ns3/node-list.h>
+#include <ns3/building.h>
+#include <ns3/mobility-building-info.h>
+#include <ns3/hybrid-buildings-propagation-loss-model.h>
+#include <ns3/constant-position-mobility-model.h>
 #include "ns3/applications-module.h"
 #include "ns3/wifi-module.h"
 #include "ns3/network-module.h"
@@ -93,6 +99,7 @@ struct sim_config
   uint32_t defaultPositions;
   double xDistanceFromAp;
   double yDistanceFromAp;
+  double zDistanceFromAp;
   uint16_t beta;
 
   /* Channel and CCA */
@@ -145,7 +152,6 @@ GetJFI (int nStas, std::vector<uint64_t> &udpClientSentPackets)
           num = 0;
           denom = 1;
           std::cout << "Some clients did not sent packets." << std::endl;
-          break;
         }
     }
   jfi = std::pow (num, 2) / denom;
@@ -191,6 +197,12 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
       phyAp->SetEdThreshold (config.edTheshold);
       phyAp->SetCcaMode1Threshold (config.cca1Threshold);
 
+      /* Setting tx powers according TGax */
+      double txPowerDb = 15;
+
+      phyAp->SetTxPowerStart (txPowerDb);
+      phyAp->SetTxPowerEnd (txPowerDb);
+
       std::cout << "\n###Channel###" << std::endl;
       std::cout << "- Ap-" << i << ": " << channelAp->GetNDevices () << " connected devices" << std::endl;
       std::cout << "\t- Wifi channel: " << phyAp->GetChannelNumber () << std::endl;
@@ -223,6 +235,9 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
           phySta->SetEdThreshold (config.edTheshold);
           phySta->SetCcaMode1Threshold (config.cca1Threshold);
 
+          phySta->SetTxPowerStart (txPowerDb);
+          phySta->SetTxPowerEnd (txPowerDb);
+
           staEdThreshold.at (j) = phySta->GetEdThreshold ();
 
           /* Checking that AP and STAs PHY settings are the same */
@@ -231,6 +246,181 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
           NS_ASSERT (phySta->GetEdThreshold () == phyAp->GetEdThreshold ());
         }
       std::cout << "\t- Stations's energy detection threshold: " << staEdThreshold.at (0) << " dBm" << std::endl;
+    }
+}
+
+void
+mobilityUsingBuildings (struct sim_config &config, std::vector<MobilityHelper> &mobility, 
+  NodeContainer &backboneNodes, std::vector<NodeContainer> &sta, std::vector<NetDeviceContainer> &staDevices, 
+  std::vector<NetDeviceContainer> &apDevices)
+{
+  NS_ASSERT (config.defaultPositions == 5);
+  NS_ASSERT (config.nWifis == staDevices.size ());
+  NS_ASSERT (apDevices.size () == config.nWifis);
+
+  double wifiX = 0.0;
+  double distanceX = config.xDistanceFromAp;
+  double bottomX = wifiX;
+  uint32_t columnsOfRooms = 5;
+  double topX = (columnsOfRooms * 2 * distanceX);
+
+  double wifiY = 0.0;
+  double distanceY = config.yDistanceFromAp;
+  double bottomY = wifiY;
+  uint32_t rowsOfRooms = 2;
+  double topY = (rowsOfRooms * 2 * distanceY);
+
+  double wifiZ = 1.5;
+  double distanceZ = config.zDistanceFromAp;
+  double bottomZ = wifiZ;
+  uint32_t numOfFloors = 5;
+  double topZ = (2 * distanceZ * numOfFloors);
+
+
+  Ptr<Building> building1  = CreateObject<Building> ();
+  building1->SetBoundaries (Box (bottomX, topX, bottomY, topY, bottomZ, topZ));
+  building1->SetNRoomsX (columnsOfRooms);
+  building1->SetNRoomsY (rowsOfRooms);
+  building1->SetNFloors (numOfFloors);
+
+  building1->SetBuildingType (Building::Residential);
+  building1->SetExtWallsType (Building::ConcreteWithWindows);
+
+  uint16_t roomZ = 1;
+  uint16_t roomX = 1;
+  uint16_t roomY = 1;
+
+  for (uint32_t i = 0; i < config.nWifis; i ++)
+    {
+      Vector apPos;
+      
+      Ptr<UniformRandomVariable> rX = CreateObject<UniformRandomVariable> ();
+      Ptr<UniformRandomVariable> rY = CreateObject<UniformRandomVariable> ();
+
+      rX->SetAttribute ("Min", DoubleValue (wifiX));
+      rX->SetAttribute ("Max", DoubleValue (wifiX + (2 * config.xDistanceFromAp)));
+      rY->SetAttribute ("Min", DoubleValue (wifiY));
+      rY->SetAttribute ("Max", DoubleValue (wifiY + (2 * config.yDistanceFromAp)));
+
+      apPos = Vector (rX->GetValue (), rY->GetValue (), wifiZ);
+   
+      mobility.at (i).Install (backboneNodes.Get (i));
+      mobility.at (i).Install (sta.at (i));
+      mobility.at (i).SetMobilityModel ("ns3::ConstantPositionMobilityModel");  
+
+
+      Ptr<Object> object = backboneNodes.Get (i);
+      Ptr<MobilityModel> mm = object->GetObject<MobilityModel> ();
+      NS_ASSERT (mm != 0);
+      mm->SetPosition (apPos);
+
+      /* Creating the MobilityBuildingInfo with the help of BuildingsHelper */
+      BuildingsHelper::Install (backboneNodes.Get (i));
+
+      Ptr<MobilityBuildingInfo> apBuildingInfo = mm->GetObject<MobilityBuildingInfo> ();
+      NS_ASSERT (apBuildingInfo != 0);
+      apBuildingInfo->SetBuilding (building1);
+
+      apBuildingInfo->SetIndoor (building1, roomZ, roomX, roomY);
+
+      BuildingsHelper::MakeConsistent (mm);
+
+      Ptr<YansWifiChannel> channelAp;
+      uint32_t nDevices = apDevices.at (i).GetN ();
+      for (uint32_t n = 0; n < nDevices; n ++)
+        {
+          channelAp = apDevices.at (i).Get (n)->GetObject<WifiNetDevice> ()->
+            GetChannel ()->GetObject<YansWifiChannel> ();
+          if (channelAp)
+            break;
+        }
+      NS_ASSERT (channelAp); // GetObject<YansWifiChannel> () can return false
+      Ptr<HybridBuildingsPropagationLossModel> buildingLoss = channelAp->GetPropagationLossModel ()->GetNext ()
+        ->GetObject<HybridBuildingsPropagationLossModel> ();
+      NS_ASSERT (buildingLoss);
+
+      buildingLoss->SetFrequency (config.freq);
+      buildingLoss->SetRooftopHeight (topZ);
+
+      //pippo
+      uint32_t k = 0;
+      for (NodeContainer::Iterator j = sta.at (i).Begin (); j != sta.at (i).End (); j++, k++)
+        {
+          Vector staPos = Vector (rX->GetValue (), rY->GetValue (), wifiZ);
+
+          Ptr<Object> object = *j;
+          Ptr<MobilityModel> mmStas = object->GetObject<MobilityModel> ();
+          NS_ASSERT (mmStas != 0);
+          mmStas->SetPosition (staPos);
+
+          BuildingsHelper::Install (*j);
+
+          Ptr<MobilityBuildingInfo> stasBuildingInfo = mmStas->GetObject<MobilityBuildingInfo> ();
+          NS_ASSERT (stasBuildingInfo != 0);
+          stasBuildingInfo->SetBuilding (building1);
+          stasBuildingInfo->SetIndoor (building1, roomZ, roomX, roomY);
+          
+          BuildingsHelper::MakeConsistent (mmStas);
+
+          Ptr<YansWifiChannel> channelSta = staDevices.at (i).Get (k)->GetObject<WifiNetDevice> ()->GetChannel ()
+            ->GetObject<YansWifiChannel> ();
+          NS_ASSERT (channelSta);
+          Ptr<HybridBuildingsPropagationLossModel> buildingLoss = channelSta->GetPropagationLossModel ()->GetNext ()
+          ->GetObject<HybridBuildingsPropagationLossModel> ();
+          NS_ASSERT (buildingLoss);
+
+          buildingLoss->SetFrequency (config.freq);
+          buildingLoss->SetRooftopHeight (topZ);
+        }
+
+      std::cout << "###Mobility###" << std::endl;
+      std::cout << "- Wifi-" << i << std::endl;
+      std::cout << "\t- Center of cell is at: (" << wifiX << ", " << wifiY << ", " << wifiZ << ")" << std::endl;
+      uint32_t n = 0;
+      for (NodeContainer::Iterator j = sta.at (i).Begin (); j != sta.at (i).End (); j++, n++)
+        {
+          Ptr<Node> object = *j;
+          Ptr<MobilityModel> position = object->GetObject<MobilityModel> ();
+          NS_ASSERT (position != 0);
+          Ptr<MobilityBuildingInfo> stasBuildingInfo = position->GetObject<MobilityBuildingInfo> ();
+
+          Vector pos = position->GetPosition ();
+          std::cout << "\t- Sta-" << n << ": x=" << pos.x << ", y=" << pos.y << ", z=" << pos.z << std::endl;
+          std::cout << "\t\t-floorNum: " << stasBuildingInfo->GetFloorNumber () << ", xRoom-#: " << stasBuildingInfo->GetRoomNumberX () << ", yRoom-#: " 
+            << stasBuildingInfo->GetRoomNumberY () << std::endl;
+        }
+
+      /* Building */
+      if ((i + 1) % columnsOfRooms == 0)
+        {
+          //resetting x coordinate every 5 nWifis
+          wifiX = config.wifiX; 
+          roomX = 1;
+
+          //swapping y coordinate every 5 nWifis
+          if (wifiY == 0)
+            {
+              wifiY = 2 * config.yDistanceFromAp;
+              roomY = 2;
+            }
+          else
+            {
+              wifiY = 0;
+              roomY = 2;
+            }
+
+          //Going up a floor
+          if ((i + 1) % 10 == 0)
+            {
+              wifiZ += 2 * config.zDistanceFromAp;
+              roomZ ++;
+            }
+        }
+      else
+        {
+          wifiX += 2 * config.xDistanceFromAp;
+          roomX ++;
+        }
     }
 }
 
@@ -244,10 +434,14 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
   Ptr<ListPositionAllocator> positionAlloc;
   Vector apPos;
   Vector staPos;
+  double wifiX = config.wifiX;
+  double wifiY = 0;
+  double wifiZ = 1.5;
 
   bool random = false;
   Ptr<UniformRandomVariable> rX = CreateObject<UniformRandomVariable> ();
   Ptr<UniformRandomVariable> rY = CreateObject<UniformRandomVariable> ();
+  Ptr<UniformRandomVariable> rZ = CreateObject<UniformRandomVariable> ();
 
   for (uint32_t i = 0; i < config.nWifis; i++)
     {
@@ -263,20 +457,20 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
             NS_ASSERT (config.nStas == 4 && config.nWifis == 3);
             goto setupPositions;
             break;
-          //Hundred linear square networks, like case 1.
+          //AP placement follows 2, but stas are randomly deployed
           case 3:
             random = true;
             goto setupPositions;
             break;
-          //Same as 2, but nodes are very close to their Ap
+          //Nodes and APs are randomly deployed. Follows TGax Building scenario
           case 4:
-            NS_ASSERT (config.nStas == 4 && config.nWifis == 3);
-            config.xDistanceFromAp = config.yDistanceFromAp / 100;
+            random = true;
+            NS_ASSERT (config.nWifis % 50 == 0);
             goto setupPositions;
           break;
           default:
             mobility.at (i).SetPositionAllocator ("ns3::GridPositionAllocator",
-                                                 "MinX", DoubleValue (config.wifiX),
+                                                 "MinX", DoubleValue (wifiX),
                                                  "MinY", DoubleValue (0.0),
                                                  "DeltaX", DoubleValue (10),
                                                  "DeltaY", DoubleValue (10),
@@ -293,22 +487,34 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
                                                  "Mode", StringValue ("Time"),
                                                  "Time", StringValue ("2s"),
                                                  "Speed", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
-                                                 "Bounds", RectangleValue (Rectangle (config.wifiX, config.wifiX+5.0,0.0, (config.nStas+1)*5.0)));
+                                                 "Bounds", RectangleValue (Rectangle (wifiX, wifiX+5.0,0.0, (config.nStas+1)*5.0)));
               }
             mobility.at (i).Install (sta.at (i));
             goto showPositions;
             break;
         }
 
-      setupPositions:
-        positionAlloc = CreateObject<ListPositionAllocator> ();
-        apPos = Vector (config.wifiX, 0.0, 0.0);
-        positionAlloc->Add (apPos);
 
-        rX->SetAttribute ("Min", DoubleValue (config.wifiX - config.xDistanceFromAp));
-        rX->SetAttribute ("Max", DoubleValue (config.wifiX + config.xDistanceFromAp));
-        rY->SetAttribute ("Min", DoubleValue (-1.0 * config.yDistanceFromAp));
-        rY->SetAttribute ("Max", DoubleValue (config.yDistanceFromAp));
+      setupPositions:
+        rX->SetAttribute ("Min", DoubleValue (wifiX - config.xDistanceFromAp));
+        rX->SetAttribute ("Max", DoubleValue (wifiX + config.xDistanceFromAp));
+        rY->SetAttribute ("Min", DoubleValue (-1.0 * config.yDistanceFromAp + wifiY));
+        rY->SetAttribute ("Max", DoubleValue (config.yDistanceFromAp + wifiY));
+        /* Floor and ceiling according to TGax. Not used, Z is fized for every nWiFi */
+        rZ->SetAttribute ("Min", DoubleValue (-1.0 * config.zDistanceFromAp + wifiZ));
+        rZ->SetAttribute ("Max", DoubleValue (wifiZ + config.zDistanceFromAp));
+
+        positionAlloc = CreateObject<ListPositionAllocator> ();
+        if (config.defaultPositions == 4)
+          {
+            /* Placing the AP at 1.5 m, according to TGax */
+            apPos = Vector (rX->GetValue (), rY->GetValue (), wifiZ);
+          }
+        else
+          {
+            apPos = Vector (wifiX, 0.0, 0.0);
+          }
+        positionAlloc->Add (apPos);
 
         for (uint32_t j = 0; j < config.nStas; j++)
           { 
@@ -320,16 +526,16 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
                     switch (j)
                       {
                         case 0:
-                          staPos = Vector (config.wifiX + config.xDistanceFromAp, 0.0, 0.0);
+                          staPos = Vector (wifiX + config.xDistanceFromAp, 0.0, 0.0);
                           break;
                         case 1:
-                          staPos = Vector (config.wifiX, config.yDistanceFromAp, 0.0);
+                          staPos = Vector (wifiX, config.yDistanceFromAp, 0.0);
                           break;
                         case 2:
-                          staPos = Vector (config.wifiX - config.xDistanceFromAp, 0.0, 0.0);
+                          staPos = Vector (wifiX - config.xDistanceFromAp, 0.0, 0.0);
                           break;
                         case 3:
-                          staPos = Vector (config.wifiX, -1.0 * config.yDistanceFromAp, 0.0);
+                          staPos = Vector (wifiX, -1.0 * config.yDistanceFromAp, 0.0);
                           break;
                       }
                   }
@@ -340,7 +546,7 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
               }
             else
               {
-                staPos = Vector (rX->GetValue (), rY->GetValue (), 0.0);
+                staPos = Vector (rX->GetValue (), rY->GetValue (), wifiZ);
               }
               positionAlloc->Add (staPos);
           }
@@ -361,6 +567,7 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
       showPositions: 
         std::cout << "###Mobility###" << std::endl;
         std::cout << "- Wifi-" << i << std::endl;
+        std::cout << "-\t Center of cell is at: (" << wifiX << ", " << wifiY << ", " << wifiZ << ")" << std::endl;
         uint32_t n = 0;
         for (NodeContainer::Iterator j = sta.at (i).Begin (); j != sta.at (i).End (); j++, n++)
           {
@@ -369,11 +576,37 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
             NS_ASSERT (position != 0);
             Vector pos = position->GetPosition ();
             std::cout << "\t- Sta-" << n << ": x=" << pos.x << ", y=" << pos.y << ", z=" << pos.z << std::endl;
+            // std::cout << "\t Max distance from the AP: X: " << config.xDistanceFromAp << ", Y: " << config.yDistanceFromAp <<", Z: " << config.zDistanceFromAp << std::endl;
+            // std::cout << "\t Default positions: " << config.defaultPositions << std::endl;
 
             /* Printing position to a file for plotting */
             // *position_stream->GetStream () << pos.x << " " << pos.y << " " << 1 << std::endl;
           }
-        config.wifiX += config.deltaWifiX;
+
+      /* Building  */
+      if (config.defaultPositions == 4 && ( (i + 1) % (5) == 0))
+        {
+          //resetting x coordinate every 5 nWifis
+          wifiX = config.wifiX; 
+
+          //swapping y coordinate every 5 nWifis
+          if (wifiY == 0)
+            {
+              wifiY = 2 * config.yDistanceFromAp;
+            }
+          else
+            {
+              wifiY = 0;
+            }
+
+          //Going up a floor
+          if ((i + 1) % 10 == 0)
+            wifiZ += 2 * config.zDistanceFromAp;
+        }
+      else
+        {
+          wifiX += config.deltaWifiX;
+        }
     }
 }
 
@@ -466,10 +699,12 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
   std::vector<double> topologyThroughput;
   std::vector<double> topologyFailedTx;
   std::vector<double> topologyJFI;
+  std::vector<double> topologyTxAttempts;
 
   topologyThroughput.assign (results->nWifis, 0.0);
   topologyFailedTx.assign (results->nWifis, 0.0);
   topologyJFI.assign (results->nWifis, 0.0);
+  topologyTxAttempts.assign (results->nWifis, 0.0);
 
 
   for (uint32_t i = 0; i < config.nWifis; i++)
@@ -566,6 +801,7 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
         topologyThroughput.at (i) = throughput;
         topologyJFI.at (i) = jfi;
         topologyFailedTx.at (i) = failFrac;
+        topologyTxAttempts.at (i) = sx + col + totalFails;
 
     }
     /* Global stats */
@@ -578,12 +814,22 @@ finalResults (struct sim_config &config, Ptr<OutputStreamWrapper> stream, struct
         std::cout << "\n- Wlan-" << i << std::endl;
         std::cout << "\t- Throughput (Mbps): " << topologyThroughput.at (i) << std::endl;
         std::cout << "\t- Fraction of failures: " << topologyFailedTx.at (i) << std::endl;
+        std::cout << "\t- Total Transmission attempts: " << topologyTxAttempts.at (i) << std::endl;
         std::cout << "\t- JFI: " << topologyJFI.at (i) << std::endl;
         std::cout << "\t- Avg. Time between Sx Tx: " << overallTimeBetweenSxTx.at (i) << std::endl;
 
         /* Writing the results to file */
+        /* 0. WLAN
+           1. Nodes
+           2. Throughput
+           3. FailedTX
+           4. JFI
+           5. Time bet sx tx
+           6. txAttempts
+         */
         *results->results_stream->GetStream () << i << " " << results->nStas << " " << topologyThroughput.at (i) << " "
-          << topologyFailedTx.at (i) << " " << topologyJFI.at (i) << " " << overallTimeBetweenSxTx.at (i) << std::endl;
+          << topologyFailedTx.at (i) << " " << topologyJFI.at (i) << " " << overallTimeBetweenSxTx.at (i) 
+          << " " << topologyTxAttempts.at (i) << std::endl;
       }
 }
 
@@ -780,14 +1026,17 @@ int main (int argc, char *argv[])
 
   std::vector<MobilityHelper> allMobility;
   config.wifiX = 0.0; // initial x position of first Ap
+  double zDistanceFromAp = 1.5;
   double yDistanceFromAp = xDistanceFromAp;
   config.yDistanceFromAp = yDistanceFromAp;
-  const double beta = 3; // Amplifies the distance between consecutive APs
+  config.zDistanceFromAp = zDistanceFromAp;
+  double beta = 3; // Amplifies the distance between consecutive APs
+  if (defaultPositions == 4)
+    beta = 2;
   deltaWifiX = beta * xDistanceFromAp;
   config.beta = beta;
 
-  /* Default configuration. Simulating a grid, nodes over a cross centerd in AP */
-  const double alpha = 1.0 * 2/3 * deltaWifiX;
+  double alpha = 1.0 * 2/3 * deltaWifiX;
   maxWifiRange = std::sqrt (std::pow (alpha, 2) + std::pow (yDistanceFromAp, 2));
   config.maxWifiRange = maxWifiRange;    
   config.limitRange = limitRange;
@@ -805,8 +1054,6 @@ int main (int argc, char *argv[])
   config.freq = freq;
 
   config.randomWalk = randomWalk;
-  if (defaultPositions > 1)
-    NS_ASSERT (nStas >= 4 && nStas % 4 == 0);
   config.deltaWifiX = deltaWifiX;
   config.defaultPositions = defaultPositions;
   config.xDistanceFromAp = xDistanceFromAp;
@@ -855,19 +1102,37 @@ int main (int argc, char *argv[])
 
 
   YansWifiChannelHelper wifiChannel;
-
-  // Set the maximum wireless range to maxWifiRange meters in order to reproduce a hidden nodes scenario
-  // i.e. the distance between hidden stations is larger than maxWifiRange meters
-  wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+  /* Channel details extracted from TGax */
+  double channelExponent = 3.5;
+  
   if (limitRange)
       {
+        wifiChannel = YansWifiChannelHelper::Default ();
         wifiChannel.AddPropagationLoss ("ns3::RangePropagationLossModel", "MaxRange", DoubleValue (maxWifiRange));
-        // Config::SetDefault ("ns3::RangePropagationLossModel::MaxRange", DoubleValue (maxWifiRange));
       }
   else
       {
-        wifiChannel.AddPropagationLoss ("ns3::FriisPropagationLossModel", "Frequency", DoubleValue (freq));
-        // Config::SetDefault ("ns3::FriisPropagationLossModel::Frequency", DoubleValue (freq));
+        if (defaultPositions == 4)
+          {
+            NS_ASSERT (xDistanceFromAp == 5);
+            wifiChannel.AddPropagationLoss ("ns3::ThreeLogDistancePropagationLossModel", 
+                                            "Distance0", DoubleValue (1),
+                                            "Distance1", DoubleValue (xDistanceFromAp),
+                                            "Distance2", DoubleValue (3 * xDistanceFromAp),
+                                            "TGax", BooleanValue (true),
+                                            "Frequency", DoubleValue (freq)
+                                            );
+          }
+        else
+          {
+            wifiChannel.AddPropagationLoss ("ns3::LogDistancePropagationLossModel", 
+                                            "Exponent", DoubleValue (channelExponent));
+            if (defaultPositions == 5)
+              wifiChannel.AddPropagationLoss ("ns3::HybridBuildingsPropagationLossModel",
+                                              "hewScenario", BooleanValue (true)
+                                              );
+          }
+        wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
       }
 
   wifiPhy.SetChannel (wifiChannel.Create ());
@@ -993,7 +1258,15 @@ int main (int argc, char *argv[])
     }
 
     /* Mobility */
-    mobilitySetup (config, allMobility, backboneNodes, staNodes);
+    if (defaultPositions != 5)
+      {
+        mobilitySetup (config, allMobility, backboneNodes, staNodes);
+      }
+    else
+      { 
+        mobilityUsingBuildings (config, allMobility, backboneNodes, staNodes, staDevices, apDevices);
+      }
+
 
 
   /* Logging and Tracing artifacts */
@@ -1006,6 +1279,7 @@ int main (int argc, char *argv[])
       LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
       LogComponentEnable ("InterferenceHelper", LOG_LEVEL_DEBUG);
       LogComponentEnable ("PropagationLossModel", LOG_LEVEL_DEBUG);
+      LogComponentEnable ("HybridBuildingsPropagationLossModel", LOG_LEVEL_DEBUG);
     }
 
   // Plugging the trace sources to all nodes in each network.

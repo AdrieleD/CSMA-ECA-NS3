@@ -552,7 +552,6 @@ EdcaTxopN::NotifyAccessGranted (void)
           SendBlockAckRequest (m_currentBar);
           return;
         }
-      m_txAttempts++;
       /* check if packets need retransmission are stored in BlockAckManager */
       m_currentPacket = m_baManager->GetNextPacket (m_currentHdr);
       if (m_currentPacket == 0)
@@ -588,6 +587,7 @@ EdcaTxopN::NotifyAccessGranted (void)
             }
         }
     }
+
   MacLowTransmissionParameters params;
   params.DisableOverrideDurationId ();
   if (m_currentHdr.GetAddr1 ().IsGroup ())
@@ -608,6 +608,8 @@ EdcaTxopN::NotifyAccessGranted (void)
     }
   else
     {
+      /* Registering access to the channel when data packets are to be sent */
+      m_txAttempts++;
       if (m_currentHdr.IsQosData () && m_currentHdr.IsQosBlockAck ())
         {
           params.DisableAck ();

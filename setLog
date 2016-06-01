@@ -1,3 +1,4 @@
 #!/bin/bash
-#export NS_LOG='YansWifiPhy=level_debug|prefix_all'
-export NS_LOG='InterferenceHelper=level_debug|prefix_all:BlockAckManager=level_debug|prefix_all:YansWifiPhy=level_debug|prefix_all:MpduStandardAggregator=level_debug|prefix_all:MsduAggregator=level_debug|prefix_all:MsduStandardAggregator=level_debug|prefix_all:DcfManager=level_debug|prefix_all:EdcaTxopN=level_debug|prefix_all:MacLow=level_debug|prefix_all'
+export NS_LOG='PropagationLossModel=level_debug|prefix_all:HybridBuildingsPropagationLossModel=level_debug|prefix_all'
+
+#export NS_LOG='InterferenceHelper=level_debug|prefix_all:BlockAckManager=level_debug|prefix_all:YansWifiPhy=level_debug|prefix_all:MpduStandardAggregator=level_debug|prefix_all:MsduAggregator=level_debug|prefix_all:MsduStandardAggregator=level_debug|prefix_all:DcfManager=level_debug|prefix_all:EdcaTxopN=level_debug|prefix_all:MacLow=level_debug|prefix_all:PropagationLossModel=level_debug|prefix_all'

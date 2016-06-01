@@ -623,6 +623,8 @@ private:
   double m_exponent2; //!< The exponent for the third field.
 
   double m_referenceLoss; //!< The reference loss at distance d0 (dB).
+  bool m_tgax;  //!< The fall for adding path loss due to walls in our scenario.
+  double m_frequency; //!< Frequency for the tgax loss model (Hz).
 };
 
 /**
