@@ -109,6 +109,12 @@ HybridBuildingsPropagationLossModel::GetTypeId (void)
                    MakeDoubleAccessor (&HybridBuildingsPropagationLossModel::m_hewLossInternalWall),
                    MakeDoubleChecker<double> ())
 
+    .AddAttribute ("HewLossInterFloors",
+                   "Loss due to internall floors the HEW building",
+                   DoubleValue (17.0),
+                   MakeDoubleAccessor (&HybridBuildingsPropagationLossModel::m_hewLossInterFloors),
+                   MakeDoubleChecker<double> ())
+
     .AddAttribute ("hewScenario",
                    "Whether or not the HEW is being tested",
                    BooleanValue (false),
@@ -282,7 +288,7 @@ HybridBuildingsPropagationLossModel::HewScenarioInternallWallsLoss (Ptr<Mobility
   double dy = std::abs (a->GetRoomNumberY () - b->GetRoomNumberY ());   
   double dz = std::abs (a->GetFloorNumber () - b->GetFloorNumber ());
 
-  return m_hewLossInternalWall * (dx+dy+dz);
+  return (m_hewLossInternalWall * (dx+dy)) + (m_hewLossInterFloors * dz);
 }
 
 bool 

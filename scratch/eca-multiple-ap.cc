@@ -90,6 +90,7 @@ struct sim_config
   uint32_t payloadSize;
   uint32_t channelWidth;
   uint16_t channelNumber;
+  bool channelAllocation;
   double freq;
   double maxWifiRange;
   bool limitRange;
@@ -110,10 +111,16 @@ struct sim_config
   bool eca;
   bool hysteresis;
   bool fairShare;
+  bool fairShareAMPDU;
   bool bitmap;
   bool dynStick;
+  bool srResetMode;
+  bool srConservative;
   uint32_t stickiness;
   uint32_t maxMsdus;
+
+  /* Traffic specific */
+  bool saturation;
 };
 struct sim_config config;
 
@@ -129,6 +136,10 @@ struct sim_results{
   std::vector< std::vector<Time> > sumTimeBetweenSxTx;
   Ptr<OutputStreamWrapper> results_stream;
 
+  std::vector< std::vector<uint64_t> > srAttempts;
+  std::vector< std::vector<uint64_t> > srReductions;
+  std::vector< std::vector<uint64_t> > srFails;
+
   uint64_t lastFailure;
   uint64_t lastCollision;
 };
@@ -140,6 +151,7 @@ GetJFI (int nStas, std::vector<uint64_t> &udpClientSentPackets)
   double jfi = 0.0;
   double num = 0.0;
   double denom = 0.0;
+
   for (uint32_t i = 0; i < nStas; i++)
     {
       if (udpClientSentPackets.at (i) > 0)
@@ -158,6 +170,67 @@ GetJFI (int nStas, std::vector<uint64_t> &udpClientSentPackets)
   return jfi;
 }
 
+uint16_t
+GetChannelForWifi (uint32_t ap, struct sim_config &config)
+{
+  NS_ASSERT (config.defaultPositions >= 2);
+  /* We may need to generate a more efficient way to do this */
+  uint16_t ch = config.channelNumber;
+  static const int arrA[] = {36,40,52,56,36 ,40,52,56,36,40 ,48,44,64,60,48 ,44,64,60,48,44};
+  static const int arrB[] = {52,56,36,40,52 ,56,36,40,52,56 ,64,60,48,44,64 ,60,48,44,64,60};
+  std::vector<uint16_t> typeA (arrA, arrA + sizeof (arrA) / sizeof (arrA[0]));
+  std::vector<uint16_t> typeB (arrB, arrB + sizeof (arrB) / sizeof (arrB[0]));
+
+  NS_ASSERT (typeA.size () == 20);
+  NS_ASSERT (typeB.size () == 20);
+
+  switch (config.defaultPositions)
+    {
+      case 2:
+        break;
+      case 3:
+        break;
+      case 4:
+        break;
+      case 5:
+        goto setupChannel;
+        break;
+      default:
+        break;
+    }
+  return ch;
+
+  setupChannel:
+    uint16_t z = 0;
+    int c = ap;
+    do
+      {
+        c = c - 20;
+        z++;
+      } while (c >= 0);  
+    z = z - 1;
+    NS_ASSERT ( (z >= 0) && (z < 5) );
+
+    int mappedAp = ap - (z * 20);
+    NS_ASSERT ( (mappedAp >= 0) && (mappedAp < 20) ); 
+    if (z % 2 == 0)
+      {
+        goto typeA;
+      }
+    else
+      {
+        goto typeB;
+      }
+
+    typeA:
+      ch = typeA.at (mappedAp);
+      return ch;
+
+    typeB:
+      ch = typeB.at (mappedAp);
+      return ch;   
+}
+
 void
 channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevices, 
   std::vector<NetDeviceContainer> apDevices)
@@ -166,6 +239,8 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
   NS_ASSERT (config.nWifis == staDevices.size ());
   NS_ASSERT (apDevices.size () == config.nWifis);
 
+  uint16_t nonOverlapCh = config.channelNumber;
+  uint16_t plus = 0;
 
   for (uint32_t i = 0; i < apDevices.size (); i++)
     {
@@ -188,10 +263,19 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
             break;
         }
       NS_ASSERT (channelAp); // GetObject<YansWifiChannel> () can return false
-    
 
       phyAp->SetChannelWidth (config.channelWidth);
-      phyAp->SetChannelNumber (config.channelNumber);
+      
+      if (config.channelAllocation)
+        {
+          nonOverlapCh = GetChannelForWifi (i, config);
+          phyAp->SetChannelNumber (nonOverlapCh);
+        }
+      else
+        {
+          phyAp->SetChannelNumber (config.channelNumber + plus);
+        }
+
 
       /* Setting the CCA parameters for AP */
       phyAp->SetEdThreshold (config.edTheshold);
@@ -230,7 +314,15 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
           Ptr<YansWifiPhy> phySta = staDevices.at (i).Get (j)->GetObject<WifiNetDevice> ()->GetPhy ()->GetObject<YansWifiPhy> ();
 
           phySta->SetChannelWidth (config.channelWidth);
-          phySta->SetChannelNumber (config.channelNumber);
+         
+          if (config.channelAllocation)
+            {
+              phySta->SetChannelNumber (nonOverlapCh);
+            }
+          else
+            {
+              phySta->SetChannelNumber (config.channelNumber + plus);
+            }
 
           phySta->SetEdThreshold (config.edTheshold);
           phySta->SetCcaMode1Threshold (config.cca1Threshold);
@@ -246,6 +338,7 @@ channelSetup (struct sim_config &config, std::vector<NetDeviceContainer> staDevi
           NS_ASSERT (phySta->GetEdThreshold () == phyAp->GetEdThreshold ());
         }
       std::cout << "\t- Stations's energy detection threshold: " << staEdThreshold.at (0) << " dBm" << std::endl;
+      plus += 4;
     }
 }
 
@@ -258,10 +351,14 @@ mobilityUsingBuildings (struct sim_config &config, std::vector<MobilityHelper> &
   NS_ASSERT (config.nWifis == staDevices.size ());
   NS_ASSERT (apDevices.size () == config.nWifis);
 
+  bool superC = true;
+
   double wifiX = 0.0;
   double distanceX = config.xDistanceFromAp;
   double bottomX = wifiX;
   uint32_t columnsOfRooms = 5;
+  if (superC)
+    columnsOfRooms *= 2;
   double topX = (columnsOfRooms * 2 * distanceX);
 
   double wifiY = 0.0;
@@ -274,6 +371,7 @@ mobilityUsingBuildings (struct sim_config &config, std::vector<MobilityHelper> &
   double distanceZ = config.zDistanceFromAp;
   double bottomZ = wifiZ;
   uint32_t numOfFloors = 5;
+
   double topZ = (2 * distanceZ * numOfFloors);
 
 
@@ -341,6 +439,9 @@ mobilityUsingBuildings (struct sim_config &config, std::vector<MobilityHelper> &
 
       buildingLoss->SetFrequency (config.freq);
       buildingLoss->SetRooftopHeight (topZ);
+      buildingLoss->SetAttribute ("ShadowSigmaOutdoor", DoubleValue (0.0));
+      buildingLoss->SetAttribute ("ShadowSigmaIndoor", DoubleValue (0.0));
+      buildingLoss->SetAttribute ("ShadowSigmaExtWalls", DoubleValue (0.0));
 
       //pippo
       uint32_t k = 0;
@@ -371,6 +472,9 @@ mobilityUsingBuildings (struct sim_config &config, std::vector<MobilityHelper> &
 
           buildingLoss->SetFrequency (config.freq);
           buildingLoss->SetRooftopHeight (topZ);
+          buildingLoss->SetAttribute ("ShadowSigmaOutdoor", DoubleValue (0.0));
+          buildingLoss->SetAttribute ("ShadowSigmaIndoor", DoubleValue (0.0));
+          buildingLoss->SetAttribute ("ShadowSigmaExtWalls", DoubleValue (0.0));
         }
 
       std::cout << "###Mobility###" << std::endl;
@@ -393,11 +497,11 @@ mobilityUsingBuildings (struct sim_config &config, std::vector<MobilityHelper> &
       /* Building */
       if ((i + 1) % columnsOfRooms == 0)
         {
-          //resetting x coordinate every 5 nWifis
+          //resetting x coordinate every columnsOfRooms nWifis
           wifiX = config.wifiX; 
           roomX = 1;
 
-          //swapping y coordinate every 5 nWifis
+          //swapping y coordinate every columnsOfRooms nWifis
           if (wifiY == 0)
             {
               wifiY = 2 * config.yDistanceFromAp;
@@ -410,7 +514,7 @@ mobilityUsingBuildings (struct sim_config &config, std::vector<MobilityHelper> &
             }
 
           //Going up a floor
-          if ((i + 1) % 10 == 0)
+          if ((i + 1) % (2 * columnsOfRooms) == 0)
             {
               wifiZ += 2 * config.zDistanceFromAp;
               roomZ ++;
@@ -505,14 +609,14 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
         rZ->SetAttribute ("Max", DoubleValue (wifiZ + config.zDistanceFromAp));
 
         positionAlloc = CreateObject<ListPositionAllocator> ();
+        /* Placing the AP at 1.5 m, according to TGax */
         if (config.defaultPositions == 4)
           {
-            /* Placing the AP at 1.5 m, according to TGax */
             apPos = Vector (rX->GetValue (), rY->GetValue (), wifiZ);
           }
         else
           {
-            apPos = Vector (wifiX, 0.0, 0.0);
+            apPos = Vector (wifiX, 0.0, wifiZ);
           }
         positionAlloc->Add (apPos);
 
@@ -526,16 +630,16 @@ mobilitySetup (struct sim_config &config, std::vector<MobilityHelper> &mobility,
                     switch (j)
                       {
                         case 0:
-                          staPos = Vector (wifiX + config.xDistanceFromAp, 0.0, 0.0);
+                          staPos = Vector (wifiX + config.xDistanceFromAp, 0.0, wifiZ);
                           break;
                         case 1:
-                          staPos = Vector (wifiX, config.yDistanceFromAp, 0.0);
+                          staPos = Vector (wifiX, config.yDistanceFromAp, wifiZ);
                           break;
                         case 2:
-                          staPos = Vector (wifiX - config.xDistanceFromAp, 0.0, 0.0);
+                          staPos = Vector (wifiX - config.xDistanceFromAp, 0.0, wifiZ);
                           break;
                         case 3:
-                          staPos = Vector (wifiX, -1.0 * config.yDistanceFromAp, 0.0);
+                          staPos = Vector (wifiX, -1.0 * config.yDistanceFromAp, wifiZ);
                           break;
                       }
                   }
@@ -652,16 +756,40 @@ finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
 
           Ptr<EdcaTxopN> edca = allNodes.at (i).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()->GetMac ()
                                 ->GetObject<RegularWifiMac> ()->GetBEQueue ();
+          NS_ASSERT (edca);
           Ptr<DcfManager> manager = allNodes.at (i).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()
                                     ->GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+          NS_ASSERT (manager);
+
+          Ptr<WifiPhy> phy = allNodes.at (i).Get (j)->GetDevice (device)->GetObject<WifiNetDevice> ()->GetPhy ();
+          NS_ASSERT (phy);
+
           if (config.eca)
             {
               edca->ResetStats ();
               manager->SetEnvironmentForECA (config.hysteresis, config.bitmap, config.stickiness, config.dynStick);
 
+              if (config.bitmap)
+                {
+                  if (config.srConservative)
+                    edca->SetScheduleConservative (); //Determines gamma. Default is aggressive gamma = 1, actual value is 2 though.
+                  if (config.srResetMode)
+                    edca->SetScheduleResetMode (); //Halving or reset?
+                }
+
               if (config.fairShare)
-                edca->SetFairShare ();
+                {
+                  edca->SetFairShare ();
+                  manager->SetAmpduSimulation ();
+                }
+              else if (config.fairShareAMPDU)
+                {
+                  phy->SetFairShare ();
+                  manager->SetAmpduSimulation ();
+                }
             }
+          /* Testing reducing the CWmax with CSMA/ECA+Hyst */
+          // edca->SetMaxCw (255);
             
           /* Universal variables. For visualization only */
           CwMin = edca->GetMinCw ();
@@ -669,16 +797,19 @@ finishSetup (struct sim_config &config, std::vector<NodeContainer> allNodes)
 
         }
         std::cout << "-Wlan-" << i << std::endl;
+        std::cout << "\t- Saturation: " << config.saturation << std::endl;
         std::cout << "\t- CSMA/ECA: " << config.eca << std::endl;
         std::cout << "\t- Hysteresis: " << config.hysteresis << std::endl;
         std::cout << "\t\t- Stickiness: " << config.stickiness << std::endl;
         std::cout << "\t- FairShare: " << config.fairShare << std::endl;
+        std::cout << "\t- FairShare AMPDU: " << config.fairShareAMPDU << std::endl;
         std::cout << "\t- Schedule Reduction: " << config.bitmap << std::endl;
+        std::cout << "\t\t- srConservative: " << config.srConservative << std::endl;
+        std::cout << "\t\t- srResetMode: " << config.srResetMode << std::endl;
 
         std::cout << "\t- CwMin: " << CwMin << std::endl;
         std::cout << "\t- CwMax: " << CwMax << std::endl;
     }
-
 }
 
 void
@@ -912,6 +1043,81 @@ TraceAssignedBackoff(Ptr<OutputStreamWrapper> stream, std::string context, uint3
     *stream->GetStream () << m_now << " " << context << " " << BO << " " << newValue << std::endl; 
 }
 
+void
+TraceEcaBitmap(Ptr<OutputStreamWrapper> stream, std::string context, std::vector<bool> *bmold, std::vector<bool> *bmnew)
+{
+  uint64_t m_now = Simulator::Now().GetNanoSeconds();
+
+  if(bmnew)
+    {
+      *stream->GetStream () << m_now << " " << context << " " << bmnew->size() << " ";
+      for (std::vector<bool>::iterator i = bmnew->begin(); i != bmnew->end(); i++)
+        {
+          uint32_t slot = 0;
+          if (*i == true)
+            slot = 1;
+          *stream->GetStream () << slot;
+        }
+      *stream->GetStream () << std::endl;
+    }
+}
+
+void
+TraceSrAttempts(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+  uint64_t m_now = Simulator::Now().GetNanoSeconds ();
+  std::string token;
+  std::string delimeter = "->";
+  size_t pos = context.find (delimeter);
+  std::string wlan = context.substr (0, pos);
+  std::string node = context.substr (pos + 2, context.length ());
+
+  *stream->GetStream () << m_now << " " << wlan << " " << node << " " << TX << " " << newValue << std::endl; 
+  results->srAttempts.at (std::stoi (wlan)).at (std::stoi (node))++;
+}
+
+void
+TraceSrReductions(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+  uint64_t m_now = Simulator::Now().GetNanoSeconds ();
+  std::string token;
+  std::string delimeter = "->";
+  size_t pos = context.find (delimeter);
+  std::string wlan = context.substr (0, pos);
+  std::string node = context.substr (pos + 2, context.length ());
+
+  *stream->GetStream () << m_now << " " << wlan << " " << node << " " << SXTX << " " << newValue << std::endl; 
+  results->srReductions.at (std::stoi (wlan)).at (std::stoi (node))++;
+}
+
+void
+TraceSrFails(Ptr<OutputStreamWrapper> stream, struct sim_results *results, 
+  std::string context, uint32_t oldValue, uint32_t newValue)
+{
+
+  uint64_t m_now = Simulator::Now().GetNanoSeconds ();
+  std::string token;
+  std::string delimeter = "->";
+  size_t pos = context.find (delimeter);
+  std::string wlan = context.substr (0, pos);
+  std::string node = context.substr (pos + 2, context.length ());
+ 
+  *stream->GetStream () << m_now << " " << wlan << " " << node << " " << FAILTX << " " << newValue << std::endl; 
+  results->srFails.at (std::stoi (wlan)).at (std::stoi (node))++;
+}
+
+void
+TraceFsAggregated(Ptr<OutputStreamWrapper> stream, std::string context, uint16_t oldValue, uint16_t newValue)
+{
+  if (newValue != 0xFFFF)
+    {
+      uint64_t m_now = Simulator::Now().GetNanoSeconds();
+      *stream->GetStream () << m_now << " " << context << " " << FSAGG << " " << newValue << std::endl;
+    }
+}
+
 
 int main (int argc, char *argv[])
 {
@@ -919,7 +1125,8 @@ int main (int argc, char *argv[])
   uint32_t nStas = 2;
   bool sendIp = false;
   uint32_t channelWidth = 20;
-  uint16_t channelNumber = 48;
+  uint16_t channelNumber = 40;
+  bool channelAllocation = false;
   double freq = 5.240e9;
   bool writeMobility = false;
   double deltaWifiX = 30.0;
@@ -939,8 +1146,11 @@ int main (int argc, char *argv[])
   uint64_t simulationTime = 3; //seconds
   uint32_t txRate = 83;
   Time dataGenerationRate = Seconds ((payloadSize*8) / (txRate * 1e6));
+  bool saturation = true;
   bool verbose = false;
   uint32_t defaultPositions = 0;
+  bool srResetMode = false;
+  bool srConservative = false;
 
   /* Mobility */
   double xDistanceFromAp = 10; // x component of maxWifiRange calculation
@@ -956,6 +1166,7 @@ int main (int argc, char *argv[])
   bool eca = false;
   bool hysteresis = false;
   bool fairShare = false;
+  bool fairShareAMPDU = false;
   bool bitmap = false;
   bool dynStick = false;
   uint32_t stickiness = 0;
@@ -964,6 +1175,9 @@ int main (int argc, char *argv[])
   std::string staResultsName ("staResults3.log");
   std::string txLog ("tx.log");
   std::string backoffLog ("backoff.log");
+  std::string srLog ("srLog.log");
+  std::string fsLog ("fsLog.log");
+  std::string bitmapLog ("bitmapLog.log");
 
 
   CommandLine cmd;
@@ -981,6 +1195,8 @@ int main (int argc, char *argv[])
   cmd.AddValue ("elevenAc", "802.elevenAc MCS", elevenAc);
   cmd.AddValue ("seed", "RNG simulation seed", seed);
   cmd.AddValue ("verbose", "Logging", verbose);
+  cmd.AddValue ("srResetMode", "By default, schedules will be halved. Set true for Schedule Reset", srResetMode);
+  cmd.AddValue ("srConservative", "Adjusts the number of iterations for building Schedule Reset bitmap", srConservative);
   cmd.AddValue ("eca", "Activation of a deterministic backoff after sxTx", eca);
   cmd.AddValue ("hyst", "Hysteresis", hysteresis);
   cmd.AddValue ("stickiness", "Stickiness", stickiness);
@@ -989,6 +1205,9 @@ int main (int argc, char *argv[])
   cmd.AddValue ("dynStick", "Dynamic stickiness", dynStick);
   cmd.AddValue ("edTheshold", "Energy detection threshold", edTheshold);
   cmd.AddValue ("cca1Threshold", "CCA threshold", cca1Threshold);
+  cmd.AddValue ("fairShareAMPDU", "Fair Share at AMPDU level", fairShareAMPDU);
+  cmd.AddValue ("saturation", "Maximum packet generation rate", saturation);
+  cmd.AddValue ("channelAllocation", "Separate nWiFis in orthogonal channels", channelAllocation);
   cmd.Parse (argc, argv);
 
   if (!enableRts)
@@ -1012,6 +1231,9 @@ int main (int argc, char *argv[])
   Ptr<OutputStreamWrapper> tx_stream = asciiTraceHelper.CreateFileStream (txLog);
   Ptr<OutputStreamWrapper> backoff_stream = asciiTraceHelper.CreateFileStream (backoffLog);
   Ptr<OutputStreamWrapper> sta_stream = asciiTraceHelper.CreateFileStream (staResultsName,  __gnu_cxx::ios_base::app);
+  Ptr<OutputStreamWrapper> sr_stream = asciiTraceHelper.CreateFileStream (srLog);
+  Ptr<OutputStreamWrapper> bitmap_stream = asciiTraceHelper.CreateFileStream (bitmapLog);
+  Ptr<OutputStreamWrapper> fs_stream = asciiTraceHelper.CreateFileStream (fsLog);
 
   NodeContainer backboneNodes;
   NetDeviceContainer backboneDevices;
@@ -1031,8 +1253,6 @@ int main (int argc, char *argv[])
   config.yDistanceFromAp = yDistanceFromAp;
   config.zDistanceFromAp = zDistanceFromAp;
   double beta = 3; // Amplifies the distance between consecutive APs
-  if (defaultPositions == 4)
-    beta = 2;
   deltaWifiX = beta * xDistanceFromAp;
   config.beta = beta;
 
@@ -1051,6 +1271,7 @@ int main (int argc, char *argv[])
   config.payloadSize = payloadSize;
   config.channelWidth = channelWidth;
   config.channelNumber = channelNumber;
+  config.channelAllocation = channelAllocation;
   config.freq = freq;
 
   config.randomWalk = randomWalk;
@@ -1062,8 +1283,13 @@ int main (int argc, char *argv[])
   config.hysteresis = hysteresis;
   config.stickiness = stickiness;
   config.fairShare = fairShare;
+  config.fairShareAMPDU = fairShareAMPDU;
   config.bitmap = bitmap;
   config.dynStick = dynStick;
+  config.srResetMode = srResetMode;
+  config.srConservative = srConservative;
+
+  config.saturation = saturation;
 
   std::vector<uint64_t> zeroth;
   std::vector<Time> zerothTime;
@@ -1077,6 +1303,11 @@ int main (int argc, char *argv[])
   results.udpClientSentPackets.assign (nWifis, zeroth);
   results.timeOfPrevSxTx.assign (nWifis, zerothTime);
   results.sumTimeBetweenSxTx.assign (nWifis, zerothTime);
+
+  results.srAttempts.assign (nWifis, zeroth);
+  results.srReductions.assign (nWifis, zeroth);
+  results.srFails.assign (nWifis, zeroth);
+
   results.results_stream = results_stream;
 
   results.nWifis = nWifis;
@@ -1094,7 +1325,7 @@ int main (int argc, char *argv[])
   backboneDevices = csma.Install (backboneNodes);
 
   YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
-  wifiPhy.SetPcapDataLinkType (YansWifiPhyHelper::DLT_IEEE802_11_RADIO); 
+  // wifiPhy.SetPcapDataLinkType (YansWifiPhyHelper::DLT_IEEE802_11_RADIO); 
 
   //Setting up routing, given that is a type of csma network.
   //Helper creates tables and populates them. Forget about routing.
@@ -1102,9 +1333,7 @@ int main (int argc, char *argv[])
 
 
   YansWifiChannelHelper wifiChannel;
-  /* Channel details extracted from TGax */
-  double channelExponent = 3.5;
-  
+  /* Channel details extracted from TGax */  
   if (limitRange)
       {
         wifiChannel = YansWifiChannelHelper::Default ();
@@ -1112,7 +1341,7 @@ int main (int argc, char *argv[])
       }
   else
       {
-        if (defaultPositions == 4)
+        if (defaultPositions >= 2)
           {
             NS_ASSERT (xDistanceFromAp == 5);
             wifiChannel.AddPropagationLoss ("ns3::ThreeLogDistancePropagationLossModel", 
@@ -1122,17 +1351,17 @@ int main (int argc, char *argv[])
                                             "TGax", BooleanValue (true),
                                             "Frequency", DoubleValue (freq)
                                             );
-          }
-        else
-          {
-            wifiChannel.AddPropagationLoss ("ns3::LogDistancePropagationLossModel", 
-                                            "Exponent", DoubleValue (channelExponent));
             if (defaultPositions == 5)
               wifiChannel.AddPropagationLoss ("ns3::HybridBuildingsPropagationLossModel",
                                               "hewScenario", BooleanValue (true)
                                               );
+            wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
           }
-        wifiChannel.SetPropagationDelay ("ns3::ConstantSpeedPropagationDelayModel");
+        else
+          {
+            wifiChannel = YansWifiChannelHelper::Default ();
+          }
+        
       }
 
   wifiPhy.SetChannel (wifiChannel.Create ());
@@ -1182,11 +1411,18 @@ int main (int argc, char *argv[])
       wifiMac.SetType ("ns3::ApWifiMac",
                        "Ssid", SsidValue (ssid));
 
-      if (fairShare == true)
+      if (fairShare || fairShareAMPDU)
         nMsdus = maxMsdus;
 
-      wifiMac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
-                                                  "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
+      if (fairShare)
+        wifiMac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
+                                        "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
+      if (fairShareAMPDU)
+        {
+          wifiMac.SetMpduAggregatorForAc (AC_BE, "ns3::MpduStandardAggregator",
+                                          "MaxAmpduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MPDU aggregation for AC_BE with a maximum aggregated size of nMpdus*(payloadSize+100) bytes, i.e. nMpdus aggregated packets in an A-MPDU
+          wifiMac.SetBlockAckThresholdForAc (AC_BE, 2);             //enable Block ACK when A-MPDU is enabled (i.e. nMpdus > 1)
+        }
 
       apDev = wifi.Install (wifiPhy, wifiMac, backboneNodes.Get (i));
       apInterface = ip.Assign (apDev);
@@ -1209,8 +1445,15 @@ int main (int argc, char *argv[])
                        "Ssid", SsidValue (ssid),
                        "ActiveProbing", BooleanValue (false));
 
-      wifiMac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
-                                                  "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
+      if (fairShare)
+        wifiMac.SetMsduAggregatorForAc (AC_BE, "ns3::MsduStandardAggregator",
+                                        "MaxAmsduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MSDU aggregation for AC_BE with a maximum aggregated size of nMsdus*(payloadSize+100) bytes, i.e. nMsdus aggregated packets in an A-MSDU
+      if (fairShareAMPDU)
+        {
+          wifiMac.SetMpduAggregatorForAc (AC_BE, "ns3::MpduStandardAggregator",
+                                          "MaxAmpduSize", UintegerValue (nMsdus * (payloadSize + 100))); //enable MPDU aggregation for AC_BE with a maximum aggregated size of nMpdus*(payloadSize+100) bytes, i.e. nMpdus aggregated packets in an A-MPDU
+          wifiMac.SetBlockAckThresholdForAc (AC_BE, 2);             //enable Block ACK when A-MPDU is enabled (i.e. nMpdus > 1)
+        }
 
       staDev = wifi.Install (wifiPhy, wifiMac, sta);
       staInterface = ip.Assign (staDev);
@@ -1230,6 +1473,12 @@ int main (int argc, char *argv[])
 
           UdpClientHelper myClient (ApDestAddress.GetAddress (0), port);
           myClient.SetAttribute ("MaxPackets", UintegerValue (4294967295u));
+
+          if (!saturation)
+            {
+              dataGenerationRate = Seconds ((payloadSize*8) / (100 * 1e3));
+              std::cout << "Non-sat" << std::endl;
+            }
           myClient.SetAttribute ("Interval", TimeValue (dataGenerationRate)); //packets/s
           myClient.SetAttribute ("PacketSize", UintegerValue (payloadSize));
 
@@ -1254,7 +1503,7 @@ int main (int argc, char *argv[])
       allNodes.at (i).Add (sta);
       NS_ASSERT (allNodes.at (i).GetN () == (1 + nStas));
   
-      wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[i]);
+      // wifiPhy.EnablePcap ("wifi-wired-bridging", apDevices[i]);
     }
 
     /* Mobility */
@@ -1275,11 +1524,12 @@ int main (int argc, char *argv[])
       LogComponentEnable ("EdcaTxopN", LOG_LEVEL_DEBUG);
       LogComponentEnable ("DcfManager", LOG_LEVEL_DEBUG);
       // LogComponentEnable ("MsduStandardAggregator", LOG_LEVEL_DEBUG);
+      // LogComponentEnable ("MpduStandardAggregator", LOG_LEVEL_DEBUG);
       // LogComponentEnable ("MsduAggregator", LOG_LEVEL_DEBUG);
-      LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
-      LogComponentEnable ("InterferenceHelper", LOG_LEVEL_DEBUG);
-      LogComponentEnable ("PropagationLossModel", LOG_LEVEL_DEBUG);
-      LogComponentEnable ("HybridBuildingsPropagationLossModel", LOG_LEVEL_DEBUG);
+      // LogComponentEnable ("YansWifiPhy", LOG_LEVEL_DEBUG);
+      // LogComponentEnable ("InterferenceHelper", LOG_LEVEL_DEBUG);
+      // LogComponentEnable ("PropagationLossModel", LOG_LEVEL_DEBUG);
+      // LogComponentEnable ("HybridBuildingsPropagationLossModel", LOG_LEVEL_DEBUG);
     }
 
   // Plugging the trace sources to all nodes in each network.
@@ -1303,10 +1553,14 @@ int main (int argc, char *argv[])
           edca->TraceConnect ("TxSuccesses", n.str (), MakeBoundCallback (&TraceSuccesses, tx_stream, &results));
           edca->TraceConnect ("TxAttempts", n.str (), MakeBoundCallback (&TraceTxAttempts, tx_stream, &results));
           edca->TraceConnect ("BackoffCounter", n.str (), MakeBoundCallback (&TraceAssignedBackoff, backoff_stream));  
+
+          edca->TraceConnect ("Bitmap", n.str (), MakeBoundCallback (&TraceEcaBitmap, bitmap_stream));
+          edca->TraceConnect ("SrReductionAttempts", n.str (), MakeBoundCallback (&TraceSrAttempts, sr_stream, &results));
+          edca->TraceConnect ("SrReductions", n.str (), MakeBoundCallback (&TraceSrReductions, sr_stream, &results));
+          edca->TraceConnect ("SrReductionFailed", n.str (), MakeBoundCallback (&TraceSrFails, sr_stream, &results));
+          edca->TraceConnect ("FsAggregated", n.str (), MakeBoundCallback (&TraceFsAggregated, fs_stream));
         }
     }
-
-
 
   Simulator::Stop (Seconds (simulationTime + 1));
   Simulator::Schedule (Seconds (0.5), channelSetup, config, staDevices, apDevices);

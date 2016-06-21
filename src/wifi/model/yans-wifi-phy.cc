@@ -493,6 +493,7 @@ YansWifiPhy::GetChannelSwitchDelay (void) const
 double
 YansWifiPhy::GetChannelFrequencyMhz () const
 {
+  // return m_channelStartingFrequency + 5 * GetChannelNumber ();
   return m_channelStartingFrequency + 5 * GetChannelNumber ();
 }
 

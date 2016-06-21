@@ -417,6 +417,7 @@ public:
   void UpdateFrameErrorCount (void);
   void UpdatePreableHeaderTracedPowerRx (double value);
 
+
 private:
   virtual void DoInitialize (void);
   virtual void DoDispose (void);
@@ -536,8 +537,7 @@ private:
   bool     m_greenfield;            //!< Flag if GreenField format is supported
   bool     m_guardInterval;         //!< Flag if short guard interval is used
   uint32_t m_channelWidth;          //!< Channel width
-
-
+  
   /**
    * This vector holds the set of transmission modes that this
    * WifiPhy(-derived class) can support. In conversation we call this
@@ -589,6 +589,7 @@ private:
   uint16_t m_mpdusNum;                  //!< carries the number of expected mpdus that are part of an A-MPDU
   bool m_plcpSuccess;                   //!< Flag if the PLCP of the packet or the first MPDU in an A-MPDU has been received
   double m_minFer;                      //!< Minimum frame error rate
+
 
   TracedValue<uint64_t> m_errorFrames;  //!< Number of frames affected by m_minFer
   TracedValue<double> m_rxPowerDbm;     //!< Preamble header received power in dBm

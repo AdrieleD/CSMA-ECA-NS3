@@ -294,7 +294,7 @@ EdcaTxopN::EdcaTxopN ()
     m_ampduExist (false),
     m_fairShare (false),
     m_fsAggregation (0),
-    m_srActivationThreshold (0),
+    m_srActivationThreshold (1),
     m_srBeingFilled (false),
     m_srIterations (0),
     m_srReductionFactor (1),
@@ -704,7 +704,7 @@ EdcaTxopN::NotifyAccessGranted (void)
                                                             MapDestAddressForAggregation (peekedHdr));
                       if (aggregated)
                         {
-                          isAmsdu = true;
+                          isAmsdu = false;
                           m_queue->Remove (peekedPacket);
                         }
                       else
@@ -748,7 +748,8 @@ EdcaTxopN::NotifyAccessGranted (void)
     }
 }
 
-void EdcaTxopN::NotifyInternalCollision (void)
+void 
+EdcaTxopN::NotifyInternalCollision (void)
 {
   NS_LOG_FUNCTION (this);
   NotifyCollision ();
@@ -767,10 +768,11 @@ EdcaTxopN::NotifyCollision (void)
     }
   else
     {
+      m_collisions++;
       if (m_manager->GetScheduleReset ())
         ResetSrMetrics ();
-      m_collisions++;
-      m_dcf->ResetCw ();
+      if (!m_manager->GetHysteresisForECA ())
+        m_dcf->ResetCw ();
       m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
     }
   RestartAccessIfNeeded ();
@@ -929,6 +931,7 @@ EdcaTxopN::GotAck (double snr, WifiMode txMode)
       /* Beginning of CSMA/ECA */
       AddConsecutiveSuccess ();
       m_manager->ResetStickiness ();
+
       if (m_manager->GetEnvironmentForECA ())
         {
           if (!m_manager->GetHysteresisForECA ())
@@ -938,6 +941,7 @@ EdcaTxopN::GotAck (double snr, WifiMode txMode)
             {
               if (m_scheduleRecentlyReduced == true)
                 KeepScheduleReductionIfAny ();
+
               if (m_srActivationThreshold == 0)
                 SetScheduleResetActivationThreshold ( (m_dcf->GetCwMax ()+ 1) / (m_dcf->GetCw () + 1) );
 
@@ -958,9 +962,9 @@ EdcaTxopN::GotAck (double snr, WifiMode txMode)
                         {
                           NS_LOG_DEBUG ("Checking bitmap for Schedule Reset");
                           if (CanWeReduceTheSchedule ())
-                          {
-                            ModifyCwAccordingToScheduleReduction ();
-                          }
+                            {
+                              ModifyCwAccordingToScheduleReduction ();
+                            }
                           else
                             {
                               NS_LOG_DEBUG ("We cannot reduce the schedule");
@@ -1777,7 +1781,7 @@ EdcaTxopN::ResetStats (void)
   m_ecaBitmap = false;
   m_consecutiveSuccess = 0;
   m_settingThreshold = false;
-  m_scheduleResetThreshold = 0;
+  m_scheduleResetThreshold = 2;
   m_scheduleResetMode = false;
   m_scheduleResetConservative = false;
   m_dcf->StartBackoffNow (m_rng->GetNext (0, m_dcf->GetCw ()));
@@ -1832,7 +1836,8 @@ EdcaTxopN::CanWeReduceTheSchedule (void)
         }
       /* End of debug */
 
-      if (!bitmap->at (currentSize/2 - 1))
+      uint32_t midpoint = (currentSize - 1) / 2;
+      if (bitmap->at (midpoint) == 0)
         {
           NS_LOG_DEBUG ("A schedule halving is possible. Size: " << currentSize );
           canI = true;
@@ -1856,13 +1861,16 @@ EdcaTxopN::CanWeReduceTheSchedule (void)
         {
           for (uint32_t i = 0; i <= maxStage; i++)
             {
-              uint32_t position = pow (2,i) * m_dcf->GetCwMin () / 2;
+              uint32_t position = pow (2,i) * std::ceil( (m_dcf->GetCwMin () + 1) / 2);
               NS_ASSERT (position < currentSize);
-              if (!bitmap->at (position))
+              // std::cout << "checking for stage : " << i << ", maxStage: " << maxStage << std::endl;
+
+              if (bitmap->at (position) == 0)
               {
                 NS_LOG_DEBUG ("A schedule reset is possible. Position: " << position );
                 canI = true;
-                m_srReductionFactor = (m_dcf->GetCw () + 1) / (pow (2,i) * m_dcf->GetCwMin () + 1);
+                m_srReductionFactor = (m_dcf->GetCw () + 1) / (pow (2,i) * (m_dcf->GetCwMin () + 1) );
+                // std::cout << "\tgetting out, m_srReductionFactor: " << m_srReductionFactor << ", pos: " << position << std::endl;
                 break;
               }
             }
@@ -1906,7 +1914,7 @@ EdcaTxopN::SetScheduleResetThreshold (void)
     }
   else
     {
-      m_scheduleResetThreshold = 1;
+      m_scheduleResetThreshold = 2;
     }
 }
 
@@ -1935,16 +1943,10 @@ EdcaTxopN::ModifyCwAccordingToScheduleReduction (void)
   uint32_t factor = GetScheduleReductionFactor ();
   NS_ASSERT (factor > 0);
 
-  uint32_t reduced = ((m_dcf->GetCw () + 1) / factor) - 1;
-
-  if(reduced > m_dcf->GetCwMin ())
-    {
-      m_dcf->SetCw (reduced);
-    }
-  else
-    {
-      m_dcf->SetCw (m_dcf->GetCwMin ());
-    }
+  uint32_t reduced = std::max ( ((m_dcf->GetCw () + 1) / factor) - 1, m_dcf->GetCwMin () );
+  
+  NS_ASSERT (reduced % 2 != 0);
+  m_dcf->SetCw (reduced);
 
   NS_LOG_DEBUG ("Schedule Reset modified Cw from: " << m_srPreviousCw << " to: " << m_dcf->GetCw ());
 
@@ -1968,6 +1970,7 @@ EdcaTxopN::ResetSrMetrics (void)
     {
       NS_LOG_DEBUG ("Resetting the chances made by Schedule Reset. Cw back to: " << m_srPreviousCw);
       m_dcf->SetCw (m_srPreviousCw);
+      // std::cout << "Reversing to: " << m_srPreviousCw << std::endl;
     }
   m_scheduleRecentlyReduced = false;
 }

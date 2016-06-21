@@ -50,7 +50,6 @@ BuildingsPropagationLossModel::ShadowingLoss::ShadowingLoss (double shadowingVal
 double
 BuildingsPropagationLossModel::ShadowingLoss::GetLoss () const
 {
-  std::cout << "NEVER" << std::endl;
   return (m_shadowingValue);
 }
 

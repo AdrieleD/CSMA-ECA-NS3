@@ -1228,6 +1228,11 @@ public:
    */
   virtual void SetChannelWidth (uint32_t channelwidth) = 0;
 
+  virtual void SetFairShare (void);
+  virtual bool GetPhyFairShare (void);
+
+  bool m_fairShare;                //!< AMPDU aggregation flag for Fair Share
+
 
 private:
   /**

@@ -112,6 +112,7 @@ WifiPhy::WifiPhy ()
   NS_LOG_FUNCTION (this);
   m_totalAmpduSize = 0;
   m_totalAmpduNumSymbols = 0;
+  m_fairShare = false;
 }
 
 WifiPhy::~WifiPhy ()
@@ -656,6 +657,19 @@ void
 WifiPhy::NotifyMonitorSniffTx (Ptr<const Packet> packet, uint16_t channelFreqMhz, uint16_t channelNumber, uint32_t rate, WifiPreamble preamble, WifiTxVector txVector, struct mpduInfo aMpdu)
 {
   m_phyMonitorSniffTxTrace (packet, channelFreqMhz, channelNumber, rate, preamble, txVector, aMpdu);
+}
+
+
+void
+WifiPhy::SetFairShare (void)
+{
+  m_fairShare = true;
+}
+
+bool 
+WifiPhy::GetPhyFairShare (void)
+{
+  return m_fairShare;
 }
 
 

@@ -172,11 +172,15 @@ finishSetup (struct sim_config &config)
     /* Configuring the clients */
     Ptr<EdcaTxopN> dca = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
       GetMac ()->GetObject<RegularWifiMac> ()->GetBEQueue ();
+
     Ptr<DcfManager> manager = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
       GetMac ()->GetObject<RegularWifiMac> ()->GetDcfManager ();
+
     Ptr<WifiMac> wifiMac = allNodes.Get (i)->GetDevice (0)->GetObject<WifiNetDevice> ()
       ->GetMac ();
+
     Ptr<MacLow> macLow = dca->Low ();
+    
     Ptr<YansWifiPhy> phy = allNodes.Get(i)->GetDevice (0)->GetObject<WifiNetDevice> ()->
       GetPhy ()->GetObject<YansWifiPhy> ();
 
@@ -191,7 +195,9 @@ finishSetup (struct sim_config &config)
         config.stickiness, config.dynStick);
       
       if (config.fairShare)
+        {
           dca->SetFairShare ();
+        }
 
       /* Setting the Ack timeout and EIFS no DIFS to be equal to DIFS */
       if (config.EIFSnoDIFS != 1)
@@ -202,7 +208,8 @@ finishSetup (struct sim_config &config)
       /* Setting all the nasty stuff for Schedule Reset */      
       if (config.bitmap == true)
         {
-          manager->SetAmsduSimulation ();
+          if (config.fairShare)
+            manager->SetAmpduSimulation ();
           if (config.srActivationThreshold == 1)
             dca->SetScheduleResetActivationThreshold (config.srActivationThreshold);
           if (config.srConservative)

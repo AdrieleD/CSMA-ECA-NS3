@@ -14,23 +14,27 @@ my $rep = 1;
 my $simulationTime = 25;
 my $seed = -1; #Keep -1 to leave unchanged
 my $stickiness = 0;
-# my $EIFSnoDIFS = 1; #see collisions.numbers
-# my $AckTimeout = 1; 
-# my $frameMinFer = 0.1;
 my $channelWidth = 20;
+my $channelAllocation = false;
 my $xDistanceFromAp = 10.0; #x component of maxWifiRange calculation
 
 my $eca = false;
 my $hyst = false;
-# my $verbose = false;
 my $dynStick = false;
 my $fairShare = false;
+my $fairShareAMPDU = false;
 my $bitmap = false;
-my $limitRange = false; #if activated, no loss works, and range limitation is applied
 my $srConservative = false;
 my $srResetMode = false;
+
+my $limitRange = false; #if activated, no loss works, and range limitation is applied
 my $elevenAc = false; #sets 802.11ac mcs
+my $singleAP = false;
+
+my $saturation = true;
+
 my @command = './waf --cwd=tmp3/ --run "scratch/eca-multiple-ap';
+
 
 
 #Modifying parameters according to test scenario
@@ -45,11 +49,15 @@ switch ($scenario){
 
 	case "single"{
 		$rep = 1;
-		$eca = false;
-		$hyst = false;
+		$eca = true;
+		$hyst = true;
 		$fairShare = false;
 
-		$simulationTime = 10;
+		$stickiness = 1;
+		$bitmap = true;
+		$dynStick = true;
+
+		$simulationTime = 2;
 		$defaultPositions = 5;
 		$xDistanceFromAp = 5;
 		
@@ -69,31 +77,47 @@ switch ($scenario){
 		$hyst = true;
 		$stickiness = 1;
 		$fairShare = true;
+		$fairShareAMPDU = false;
+	}
+
+	case "BasicECA"{
+		$eca = true;
+		$hyst = false;
+		$stickiness = 0;
+		$fairShare = false;
 	}
 
 	case "ECA+"{
 		$eca = true;
 		$hyst = true;
+		$fairShare = false;
+
 		$stickiness = 1;
-		$fairShare = true;
 		$bitmap = true;
 		$dynStick = true;
+		$srConservative = true;
+		$srResetMode = true;
 	}
 }
 
 switch ($defaultPositions){
 	case 1 {
-		$nStas = 1;
-		$nWifis = 2;
+		$nStas = 10;
+		$nWifis = 1;
+		$limitRange = true;
+		$xDistanceFromAp = 5;
 	}
 	case 2 {
 		$nStas = 4;
 		$nWifis = 3;
-		$limitRange = false;
+		$limitRange = true;
+		$xDistanceFromAp = 5;
 	}
 	case 3 {
 		$nStas = 20;
 		$nWifis = 10;
+		$xDistanceFromAp = 5;
+		$limitRange = false;
 	}
 	case 4 {
 		$rep = 1;
@@ -104,38 +128,63 @@ switch ($defaultPositions){
 	}
 	case 5 {
 		$nStas = 10;
-		$nWifis = 50;
+		$nWifis = 100;
+
+		$rep = 2;
+		$simulationTime = 10;
 		$xDistanceFromAp = 5;
+
+		$channelAllocation = true;
 	}
 }
+
+my @stasPerAP;
+if ($singleAP)
+{
+	push @stasPerAP, (1 .. 50);
+}else
+{
+	push @stasPerAP, $nStas;
+}
+
 
 foreach my $j (1 .. $rep){
 	$seed = $j
 		if($rep > 1);
-	my @addition = ("--nWifis=$nWifis
-					--xDistanceFromAp=$xDistanceFromAp
-					--seed=$seed 
-					--nStas=$nStas
-					--simulationTime=$simulationTime
-					--elevenAc=$elevenAc
-					--channelWidth=$channelWidth
-					--eca=$eca
-					--hyst=$hyst
-					--bitmap=$bitmap
-					--dynStick=$dynStick
-					--fairShare=$fairShare
-					--stickiness=$stickiness
-					--defaultPositions=$defaultPositions
-					--limitRange=$limitRange\"");
-	my @outPut = "@command @addition";
-	print("###Simulating iteration $j of $rep\n");
-	print ("@outPut\n");
-	system(@outPut);
+
+	foreach (@stasPerAP)
+	{
+		my @addition = ("--nWifis=$nWifis
+						--xDistanceFromAp=$xDistanceFromAp
+						--seed=$seed 
+						--nStas=$_
+						--simulationTime=$simulationTime
+						--elevenAc=$elevenAc
+						--channelWidth=$channelWidth
+						--eca=$eca
+						--hyst=$hyst
+						--bitmap=$bitmap
+						--dynStick=$dynStick
+						--fairShare=$fairShare
+						--fairShareAMPDU=$fairShareAMPDU
+						--stickiness=$stickiness
+						--defaultPositions=$defaultPositions
+						--srConservative=$srConservative
+						--srResetMode=$srResetMode
+						--saturation=$saturation
+						--channelAllocation=$channelAllocation
+						--limitRange=$limitRange\"");
+		my @outPut = "@command @addition";
+		print("###Simulating iteration $j of $rep\n");
+		print("###The number of stas per AP: $_\n");
+		print ("@outPut\n");
+		system(@outPut);
+	}
 }
 
 #Now, process the files
 my $outputFile = 'results3.log';
-my @process = "cd ~/Dropbox/PhD/Research/NS3/ns-allinone-3.24.1/bake/source/ns-3.24/tmp3 && ./process3 $outputFile";
+my @process = "cd tmp3 && ./process3 $outputFile";
 system(@process);
 
 #Sending email at the end of the simulation

@@ -119,6 +119,7 @@ private:
   double m_rooftopHeight;
   double m_frequency;
   double m_hewLossInternalWall;
+  double m_hewLossInterFloors;
   bool m_hewScenario;
 
 

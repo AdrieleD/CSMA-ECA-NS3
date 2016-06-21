@@ -2857,6 +2857,7 @@ MacLow::AggregateToAmpdu (Ptr<const Packet> packet, const WifiMacHeader hdr)
   WifiMacHeader peekedHdr;
   newPacket = packet->Copy ();
   Ptr<Packet> currentAggregatedPacket;
+
   //missing hdr.IsAck() since we have no means of knowing the Tid of the Ack yet
   if (hdr.IsQosData () || hdr.IsBlockAck ()|| hdr.IsBlockAckReq ())
     {
@@ -2875,7 +2876,7 @@ MacLow::AggregateToAmpdu (Ptr<const Packet> packet, const WifiMacHeader hdr)
           if (listenerIt->second->GetBlockAckAgreementExists (hdr.GetAddr1 (), tid))
             {
               /* here is performed mpdu aggregation */
-              /* MSDU aggregation happened in edca if the user asked for it so m_currentPacket may contains a normal packet or a A-MSDU*/
+              /* MSDU aggregation happened in edca if the user asked for it so m_currentPacket may contains a normal packet or a A-MSDU */
               currentAggregatedPacket = Create<Packet> ();
               peekedHdr = hdr;
               uint16_t startingSequenceNumber = 0;

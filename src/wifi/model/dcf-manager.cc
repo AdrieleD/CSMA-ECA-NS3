@@ -536,6 +536,7 @@ DcfManager::RequestAccess (DcfState *state)
        * generate a backoff.
        */
       state->NotifyCollision ();
+      m_isNextSlotBusy = true;
     }
   DoGrantAccess ();
   DoRestartAccessTimeoutIfNeeded ();
@@ -682,27 +683,11 @@ DcfManager::UpdateBackoff (void)
           Time backoffUpdateBound = backoffStart + MicroSeconds (n * m_slotTimeUs);
           state->UpdateBackoffSlotsNow (n, backoffUpdateBound);
           
-          if(GetEnvironmentForECA () == true && GetScheduleReset ())
+          if (GetEnvironmentForECA () == true && GetScheduleReset ())
             {
-              // Check DCF 3 when working with the AMSDU example. DCF 0 Otherwise.
-              if (GetAmsduSimulation ())
+              if (AreWeFillingTheBitmap () && k == 3)
                 {
-                  if (AreWeFillingTheBitmap () && k == 3)
-                    {
-                      MY_DEBUG ("Attempting to update the bitmap with Fair Share");
-                      UpdateEcaBitmap (state);
-                    }
-                }
-              else
-                {
-                  if (i == m_states.begin ())
-                    {  
-                      if (AreWeFillingTheBitmap ())
-                        {
-                          MY_DEBUG ("Attempting to update the bitmap");
-                          UpdateEcaBitmap (state);
-                        }
-                    }
+                  UpdateEcaBitmap (state);
                 }
             }
         }
@@ -755,10 +740,6 @@ DcfManager::NotifyRxStartNow (Time duration)
   NS_LOG_FUNCTION (this << duration);
   NS_LOG_DEBUG ("rx start for=" << duration);
 
-  if(GetScheduleReset ())
-    {
-      MY_DEBUG ("Busy next slot");
-    }
   m_isNextSlotBusy = true;
   UpdateBackoff ();
   m_lastRxStart = Simulator::Now ();
@@ -815,10 +796,6 @@ DcfManager::NotifyMaybeCcaBusyStartNow (Time duration)
   MY_DEBUG ("busy start for " << duration);
   UpdateBackoff ();
 
-  if(GetScheduleReset ())
-    {
-      MY_DEBUG ("Busy next slot");
-    }
   m_isNextSlotBusy = true;
   m_lastBusyStart = Simulator::Now ();
   m_lastBusyDuration = duration;
@@ -995,7 +972,7 @@ DcfManager::NotifyCtsTimeoutResetNow ()
    *
   */
 void
-DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap, uint32_t stickiness, bool dynStick)
+DcfManager::SetEnvironmentForECA (bool hysteresis, bool scheduleReset, uint32_t stickiness, bool dynStick)
 {
   m_isECA = true;
   NS_LOG_DEBUG ("Setting hysteresis");
@@ -1003,12 +980,8 @@ DcfManager::SetEnvironmentForECA (bool hysteresis, bool bitmap, uint32_t stickin
   m_dynamicStickiness = dynStick;
   m_stickiness = stickiness;
   m_resetStickiness = stickiness;
-
-  if (bitmap == true)
-    {
-      m_scheduleReset = true;
-      NS_LOG_DEBUG ("Setting Schedule Reset: " << m_scheduleReset);
-    }
+  m_scheduleReset = scheduleReset;
+  NS_LOG_DEBUG ("Setting Schedule Reset: " << m_scheduleReset);
 }
 
 bool
@@ -1064,6 +1037,7 @@ DcfManager::UpdateEcaBitmap (DcfState *state)
 
   // std::cout << "Marking position: " << position << " as " << m_ecaBitmap.at (position) << std::endl;
   // std::cout << "Current Backoff: " << state->GetBackoffSlots () << std::endl;
+
   MY_DEBUG ("Remaining backoff slots: " << state->GetBackoffSlots ());
   m_isNextSlotBusy = false;
 }
@@ -1073,11 +1047,11 @@ DcfManager::GetCurrentBitmapPosition (DcfState *state)
 {
   if (GetScheduleReset ())
   {
+    NS_ASSERT (m_scheduleReset);
     uint32_t position = 0;
     position = state->GetBackoffSlots ();
     MY_DEBUG ("pos: " << position << ". size: " << m_ecaBitmap.size ());
     NS_ASSERT (position < m_ecaBitmap.size ());
-    MY_DEBUG ("Assert ok " << position);
     return position;
   }
   else
@@ -1156,13 +1130,13 @@ DcfManager::SetNotFillingTheBitmap (void)
 }
 
 void
-DcfManager::SetAmsduSimulation (void)
+DcfManager::SetAmpduSimulation (void)
 {
   m_ecaFairShare = true;
 }
 
 bool
-DcfManager::GetAmsduSimulation (void)
+DcfManager::GetAmpduSimulation (void)
 {
   return m_ecaFairShare;
 }

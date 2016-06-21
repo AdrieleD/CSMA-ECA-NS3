@@ -8,8 +8,8 @@ my $seed = -1; #Keep -1 to leave unchanged
 my $stickiness = 1;
 my $EIFSnoDIFS = 1; #see collisions.numbers
 my $AckTimeout = 1; 
-my $frameMinFer = 0.1;
-my $channelWidth = 80;
+my $frameMinFer = 0;
+my $channelWidth = 20;
 
 my $verbose = false;
 my $eca = false;

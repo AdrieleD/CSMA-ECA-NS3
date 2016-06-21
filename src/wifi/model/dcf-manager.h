@@ -440,8 +440,8 @@ public:
   bool AreWeFillingTheBitmap (void);
   void SetFillingTheBitmap (void);
   void SetNotFillingTheBitmap (void);
-  void SetAmsduSimulation (void);
-  bool GetAmsduSimulation (void);
+  void SetAmpduSimulation (void);
+  bool GetAmpduSimulation (void);
 
 
 private:
